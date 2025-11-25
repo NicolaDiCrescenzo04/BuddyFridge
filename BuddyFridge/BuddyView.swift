@@ -3,6 +3,7 @@ import SwiftData
 
 struct BuddyView: View {
     @Query private var items: [FoodItem]
+    @Environment(\.colorScheme) var colorScheme // Per la dark mode
     
     enum BuddyMood {
         case happy, worried, sad, neutral
@@ -33,41 +34,39 @@ struct BuddyView: View {
         }
     }
     
+    // Colore del fumetto adattivo
+    var bubbleColor: Color {
+        Color(uiColor: .secondarySystemGroupedBackground)
+    }
+    
     var body: some View {
-        // VSTACK: Dispone gli elementi verticalmente (uno sotto l'altro)
         VStack(spacing: 15) {
             
-            // 1. IL NOSTRO DISEGNO (Centrato)
+            // 1. IL NOSTRO DISEGNO
             BuddyGraphic(mood: currentMood)
-                .scaleEffect(0.9) // Leggermente più grande ora che è al centro
+                .scaleEffect(0.9)
                 .animation(.spring(response: 0.6, dampingFraction: 0.6), value: currentMood)
             
-            // 2. FUMETTO (Sotto)
+            // 2. FUMETTO
             if !items.isEmpty || currentMood == .neutral {
                 Text(message)
                     .font(.system(.subheadline, design: .rounded))
-                    .multilineTextAlignment(.center) // Testo centrato
+                    .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
                     .padding(.vertical, 12)
-                    .background(Color.white)
+                    .background(bubbleColor) // <--- Colore adattivo
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .shadow(color: .black.opacity(0.05), radius: 5, x: 0, y: 2)
-                    // Triangolino che punta verso l'ALTO (verso Buddy)
                     .overlay(alignment: .top) {
                         Image(systemName: "arrowtriangle.up.fill")
-                            .foregroundStyle(.white)
-                            .offset(y: -8) // Lo spinge fuori dal bordo superiore
+                            .foregroundStyle(bubbleColor) // <--- Anche la freccia
+                            .offset(y: -8)
                     }
                     .transition(.opacity.combined(with: .scale))
-                    .padding(.horizontal, 20) // Margine dai bordi dello schermo
+                    .padding(.horizontal, 20)
             }
         }
         .padding(.vertical, 10)
-        .frame(maxWidth: .infinity) // Assicura che tutto il blocco sia centrato nello schermo
+        .frame(maxWidth: .infinity)
     }
-}
-
-#Preview {
-    BuddyView()
-        .modelContainer(for: [FoodItem.self, ShoppingItem.self], inMemory: true)
 }
