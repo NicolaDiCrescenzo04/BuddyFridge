@@ -5,71 +5,98 @@ import UserNotifications
 struct AddItemView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
-    @State private var isRecurring: Bool = false
+
+    // Dati Prodotto
     @State private var name: String = ""
+    @State private var selectedEmoji: String = "🛍️"
+    
+    // Quantità e Misure
     @State private var quantity: Int = 1
+    @State private var isRecurring: Bool = false
+    @State private var measureValue: Double = 0
+    @State private var measureUnit: MeasureUnit = .pieces
+    
+    // Scadenza e Posizione
     @State private var expiryDate: Date = Date()
     @State private var location: StorageLocation = .fridge
-    @State private var selectedEmoji: String = "🛍️" // Icona modificabile
-
-    let suggestedFoods = ["Latte", "Uova", "Pane", "Yogurt", "Pollo", "Insalata", "Pasta"]
+    
+    // --- GESTIONE SCANNER ---
+    @State private var showScanner = false // Apre la fotocamera
+    @State private var isLoadingScan = false // Mostra caricamento mentre cerca il prodotto
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                // Barra Suggerimenti
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 10) {
-                        ForEach(suggestedFoods, id: \.self) { food in
-                            Button(action: {
-                                name = food
-                                selectedEmoji = guessIcon(for: food)
-                            }) {
-                                Text(food)
-                                    .font(.subheadline)
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 8)
-                                    .background(Color.blue.opacity(0.1))
-                                    .foregroundStyle(.blue)
-                                    .clipShape(Capsule())
-                            }
-                        }
-                    }
-                    .padding()
-                }
-                .background(Color(uiColor: .systemGroupedBackground))
-                
+            ZStack {
                 Form {
-                    Section(header: Text("Dettagli Prodotto")) {
+                    Section(header: Text("Cosa e Quanto?")) {
+                        // 1. CAMPO NOME + BOTTONE SCANNER
                         HStack {
-                            Text(selectedEmoji)
+                            // Icona modificabile
+                            TextField("", text: $selectedEmoji)
                                 .font(.title)
-                                .padding(5)
+                                .multilineTextAlignment(.center)
+                                .frame(width: 50, height: 50)
                                 .background(Color.gray.opacity(0.1))
                                 .clipShape(Circle())
-                            
-                            TextField("Nome prodotto", text: $name)
-                                .onChange(of: name) {
-                                    let newIcon = guessIcon(for: name)
-                                    if newIcon != "🛍️" { selectedEmoji = newIcon }
+                                .onChange(of: selectedEmoji) {
+                                    if selectedEmoji.count > 1 { selectedEmoji = String(selectedEmoji.last!) }
                                 }
-                        }
-                        
-                        Stepper("Quantità: \(quantity)", value: $quantity, in: 1...100)
-                        
-                        Toggle("Prodotto Ricorrente", isOn: $isRecurring)
-                                .toggleStyle(SwitchToggleStyle(tint: .blue))
-                        
-                        Picker("Posizione", selection: $location) {
-                            ForEach(StorageLocation.allCases, id: \.self) { location in
-                                Text(location.rawValue).tag(location)
+                            
+                            // Campo nome SEMPLICE (senza ricerca live)
+                            TextField("Nome prodotto", text: $name)
+                            
+                            // BOTTONE SCANNER
+                            Button(action: { showScanner = true }) {
+                                Image(systemName: "barcode.viewfinder")
+                                    .font(.title2)
+                                    .foregroundStyle(.blue)
+                                    .padding(8)
+                                    .background(Color.blue.opacity(0.1))
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
                             }
                         }
+                        
+                        // QUANTITÀ
+                        Stepper("Numero Pezzi: \(quantity)", value: $quantity, in: 1...100)
+                        
+                        // MISURA
+                        HStack {
+                            Text("Peso unità:")
+                            Spacer()
+                            if measureUnit != .pieces {
+                                TextField("0", value: $measureValue, format: .number)
+                                    .keyboardType(.decimalPad)
+                                    .frame(width: 70)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+                            Picker("", selection: $measureUnit) {
+                                ForEach(MeasureUnit.allCases, id: \.self) { unit in
+                                    Text(unit.rawValue).tag(unit)
+                                }
+                            }
+                            .labelsHidden()
+                        }
+                        
+                        Toggle("Prodotto Ricorrente", isOn: $isRecurring)
                     }
                     
-                    Section(header: Text("Scadenza")) {
-                        DatePicker("Data di scadenza", selection: $expiryDate, displayedComponents: .date)
+                    Section(header: Text("Dettagli")) {
+                        Picker("Posizione", selection: $location) {
+                            ForEach(StorageLocation.allCases, id: \.self) { loc in
+                                Text(loc.rawValue).tag(loc)
+                            }
+                        }
+                        DatePicker("Scadenza", selection: $expiryDate, displayedComponents: .date)
                     }
+                }
+                
+                // Overlay Caricamento (se stiamo cercando il codice online)
+                if isLoadingScan {
+                    Color.black.opacity(0.4).ignoresSafeArea()
+                    ProgressView("Cerco prodotto...")
+                        .padding()
+                        .background(.white)
+                        .cornerRadius(10)
                 }
             }
             .navigationTitle("Nuovo Cibo")
@@ -81,47 +108,64 @@ struct AddItemView: View {
                     .disabled(name.isEmpty)
                 }
             }
+            // APERTURA SCANNER
+            .sheet(isPresented: $showScanner) {
+                ScannerView { code in
+                    // Quando trova un codice, eseguiamo questo:
+                    handleScan(code: code)
+                }
+                .ignoresSafeArea()
+            }
         }
     }
 
-    // Funzione Magica Icone
-    private func guessIcon(for text: String) -> String {
-        let lower = text.lowercased()
-        if lower.contains("latte") { return "🥛" }
-        if lower.contains("uov") { return "🥚" }
-        if lower.contains("pan") { return "🍞" }
-        if lower.contains("pasta") || lower.contains("spagh") { return "🍝" }
-        if lower.contains("mela") { return "🍎" }
-        if lower.contains("carne") || lower.contains("poll") { return "🥩" }
-        if lower.contains("pesce") { return "🐟" }
-        if lower.contains("pizza") { return "🍕" }
-        if lower.contains("yogurt") { return "🥣" }
-        return "🛍️"
+    // --- LOGICA ---
+    
+    private func handleScan(code: String) {
+        isLoadingScan = true
+        
+        Task {
+            // Cerchiamo su OpenFoodFacts tramite il codice letto
+            if let product = await ProductLibrary.shared.fetchProductByBarcode(code: code) {
+                name = product.name
+                selectedEmoji = product.emoji
+                
+                if product.category == "Congelatore" { location = .freezer }
+                else if product.category == "Frigo" { location = .fridge }
+                else { location = .pantry }
+            } else {
+                // Se non lo trova
+                name = "Prodotto sconosciuto"
+            }
+            isLoadingScan = false
+        }
     }
 
-    // Salvataggio + Notifica
     private func saveItem() {
+        let finalEmoji = selectedEmoji.isEmpty ? "🛍️" : selectedEmoji
         let newItem = FoodItem(
-                name: name,
-                emoji: selectedEmoji,
-                quantity: quantity,
-                expiryDate: expiryDate,
-                location: location,
-                isRecurring: isRecurring // <--- Passiamo il valore
-            )
+            name: name,
+            emoji: finalEmoji,
+            quantity: quantity,
+            expiryDate: expiryDate,
+            location: location,
+            isRecurring: isRecurring,
+            measureValue: measureValue,
+            measureUnit: measureUnit
+        )
         modelContext.insert(newItem)
-        scheduleNotification(for: newItem) // Schedula la notifica
+        scheduleNotification(for: newItem)
         dismiss()
     }
-    
+
     private func scheduleNotification(for item: FoodItem) {
         let content = UNMutableNotificationContent()
         content.title = "Scadenza in arrivo! ⚠️"
-        content.body = "'\(item.name)' sta per scadere. Usalo presto!"
+        content.body = "'\(item.name)' sta per scadere."
         content.sound = .default
-
+        
         var dateComponents = Calendar.current.dateComponents([.day, .month, .year], from: item.expiryDate)
-        dateComponents.hour = 9 // Avvisa alle 9:00 del giorno di scadenza
+        dateComponents.hour = 9
         
         let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: false)
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
