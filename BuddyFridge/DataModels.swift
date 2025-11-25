@@ -20,26 +20,41 @@ enum ItemStatus: String, Codable {
 @Model
 class FoodItem {
     var name: String
-    var emoji: String // L'icona del cibo (es. 🥛)
+    var emoji: String
     var quantity: Int
     var expiryDate: Date
     var addedDate: Date
     var location: StorageLocation
     var status: ItemStatus
     
-    // Inizializzatore (Come si crea un nuovo oggetto)
-    init(name: String, emoji: String = "🍎", quantity: Int = 1, expiryDate: Date, location: StorageLocation = .fridge) {
+    // NUOVO CAMPO: Se è true, Buddy lo suggerisce appena finisce
+    var isRecurring: Bool
+    
+    init(name: String, emoji: String = "🍎", quantity: Int = 1, expiryDate: Date, location: StorageLocation = .fridge, isRecurring: Bool = false) {
         self.name = name
         self.emoji = emoji
         self.quantity = quantity
         self.expiryDate = expiryDate
-        self.addedDate = Date() // Imposta la data di oggi automaticamente
+        self.addedDate = Date()
         self.location = location
         self.status = .available
+        self.isRecurring = isRecurring // <--- Aggiunto qui
     }
     
-    // Una funzione utile per capire se è scaduto
     var isExpired: Bool {
         return expiryDate < Date() && status == .available
+    }
+}
+
+@Model
+class ShoppingItem {
+    var name: String
+    var isCompleted: Bool // Se è stato spuntato
+    var addedDate: Date
+    
+    init(name: String, isCompleted: Bool = false) {
+        self.name = name
+        self.isCompleted = isCompleted
+        self.addedDate = Date()
     }
 }
