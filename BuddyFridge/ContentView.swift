@@ -1,61 +1,66 @@
-//
-//  ContentView.swift
-//  BuddyFridge
-//
-//  Created by Nicola Di Crescenzo on 25/11/25.
-//
-
 import SwiftUI
 import SwiftData
 
 struct ContentView: View {
+    // DATABASE: Ci serve per cancellare
     @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
+    
+    // QUERY: Legge i dati ordinati per scadenza
+    @Query(sort: \FoodItem.expiryDate) private var items: [FoodItem]
+    
+    @State private var showAddItemSheet = false
 
     var body: some View {
-        NavigationSplitView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
+        NavigationStack {
+            VStack {
+                if items.isEmpty {
+                    ContentUnavailableView(
+                        "Il frigo è vuoto!",
+                        systemImage: "refrigerator", // Icona di un frigo (simulata)
+                        description: Text("Tappa su + per riempirlo.")
+                    )
+                } else {
+                    List {
+                        ForEach(items) { item in
+                            HStack {
+                                Text(item.emoji)
+                                    .font(.title)
+                                
+                                VStack(alignment: .leading) {
+                                    Text(item.name)
+                                        .font(.headline)
+                                    // Formattiamo la data in modo semplice
+                                    Text(item.expiryDate.formatted(date: .abbreviated, time: .omitted))
+                                        .font(.caption)
+                                        .foregroundStyle(item.isExpired ? .red : .secondary)
+                                }
+                                
+                                Spacer()
+                                
+                                Text("x\(item.quantity)")
+                                    .fontWeight(.bold)
+                            }
+                        }
+                        .onDelete(perform: deleteItems)
                     }
                 }
-                .onDelete(perform: deleteItems)
             }
+            .navigationTitle("BuddyFridge")
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    EditButton()
-                }
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
+                Button(action: { showAddItemSheet = true }) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.title2)
                 }
             }
-        } detail: {
-            Text("Select an item")
-        }
-    }
-
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(timestamp: Date())
-            modelContext.insert(newItem)
+            .sheet(isPresented: $showAddItemSheet) {
+                AddItemView()
+            }
         }
     }
 
     private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(items[index])
-            }
+        for index in offsets {
+            modelContext.delete(items[index])
         }
     }
-}
-
-#Preview {
-    ContentView()
-        .modelContainer(for: Item.self, inMemory: true)
 }
