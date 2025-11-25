@@ -24,31 +24,50 @@ struct BuddyView: View {
         return .happy
     }
     
-    var moodData: (color: Color, icon: String, message: String) {
+    var message: String {
         switch currentMood {
-        case .happy: return (.green, "face.smiling", "Tutto fresco!")
-        case .worried: return (.orange, "face.dashed", "Occhio alle scadenze...")
-        case .sad: return (.red, "exclamationmark.triangle", "Qualcosa è andato a male!")
-        case .neutral: return (.blue, "face.smiling", "Il frigo è vuoto.")
+        case .happy: return "Tutto fresco! 😎"
+        case .worried: return "Occhio alle scadenze... 😬"
+        case .sad: return "Qualcosa è andato a male! 🤢"
+        case .neutral: return "Il frigo è vuoto. Facciamo la spesa?"
         }
     }
     
     var body: some View {
-        VStack(spacing: 10) {
-            ZStack {
-                Circle().fill(moodData.color.opacity(0.2)).frame(width: 120, height: 120)
-                Circle().stroke(moodData.color, lineWidth: 3).frame(width: 120, height: 120)
-                Image(systemName: moodData.icon)
-                    .font(.system(size: 60))
-                    .foregroundStyle(moodData.color)
-            }
-            .padding(.top, 20)
+        // VSTACK: Dispone gli elementi verticalmente (uno sotto l'altro)
+        VStack(spacing: 15) {
             
-            Text(moodData.message)
-                .font(.headline)
-                .foregroundStyle(.secondary)
+            // 1. IL NOSTRO DISEGNO (Centrato)
+            BuddyGraphic(mood: currentMood)
+                .scaleEffect(0.9) // Leggermente più grande ora che è al centro
+                .animation(.spring(response: 0.6, dampingFraction: 0.6), value: currentMood)
+            
+            // 2. FUMETTO (Sotto)
+            if !items.isEmpty || currentMood == .neutral {
+                Text(message)
+                    .font(.system(.subheadline, design: .rounded))
+                    .multilineTextAlignment(.center) // Testo centrato
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .shadow(color: .black.opacity(0.05), radius: 5, x: 0, y: 2)
+                    // Triangolino che punta verso l'ALTO (verso Buddy)
+                    .overlay(alignment: .top) {
+                        Image(systemName: "arrowtriangle.up.fill")
+                            .foregroundStyle(.white)
+                            .offset(y: -8) // Lo spinge fuori dal bordo superiore
+                    }
+                    .transition(.opacity.combined(with: .scale))
+                    .padding(.horizontal, 20) // Margine dai bordi dello schermo
+            }
         }
-        .padding(.bottom, 10)
-        .animation(.spring(), value: currentMood)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity) // Assicura che tutto il blocco sia centrato nello schermo
     }
+}
+
+#Preview {
+    BuddyView()
+        .modelContainer(for: [FoodItem.self, ShoppingItem.self], inMemory: true)
 }
