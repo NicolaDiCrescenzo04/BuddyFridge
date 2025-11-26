@@ -8,6 +8,7 @@ struct AddItemView: View {
 
     // Dati Prodotto
     @State private var name: String = ""
+    // Emoji di default
     @State private var selectedEmoji: String = "🛍️"
     
     // Quantità e Misure
@@ -20,29 +21,34 @@ struct AddItemView: View {
     @State private var expiryDate: Date = Date()
     @State private var location: StorageLocation = .fridge
     
-    // --- GESTIONE SCANNER ---
-    @State private var showScanner = false // Apre la fotocamera
-    @State private var isLoadingScan = false // Mostra caricamento mentre cerca il prodotto
+    // --- STATI PER LE MODALI ---
+    @State private var showScanner = false
+    @State private var isLoadingScan = false
+    @State private var showEmojiPicker = false // <--- NUOVO: Apre il nostro picker
 
     var body: some View {
         NavigationStack {
             ZStack {
                 Form {
                     Section(header: Text("Cosa e Quanto?")) {
-                        // 1. CAMPO NOME + BOTTONE SCANNER
-                        HStack {
-                            // Icona modificabile
-                            TextField("", text: $selectedEmoji)
-                                .font(.title)
-                                .multilineTextAlignment(.center)
-                                .frame(width: 50, height: 50)
-                                .background(Color.gray.opacity(0.1))
-                                .clipShape(Circle())
-                                .onChange(of: selectedEmoji) {
-                                    if selectedEmoji.count > 1 { selectedEmoji = String(selectedEmoji.last!) }
-                                }
+                        // 1. CAMPO NOME + SELETTORE EMOJI "BOTTONE"
+                        HStack(spacing: 12) {
                             
-                            // Campo nome SEMPLICE (senza ricerca live)
+                            // --- BOTTONE EMOJI (Niente più cursore!) ---
+                            Button(action: { showEmojiPicker = true }) {
+                                ZStack {
+                                    Circle()
+                                        .fill(Color.gray.opacity(0.1))
+                                        .frame(width: 50, height: 50)
+                                    
+                                    Text(selectedEmoji)
+                                        .font(.system(size: 30)) // Icona bella grande
+                                }
+                            }
+                            .buttonStyle(.borderless) // Importante per non cliccare tutta la riga
+                            // -------------------------------------------
+                            
+                            // Campo nome
                             TextField("Nome prodotto", text: $name)
                             
                             // BOTTONE SCANNER
@@ -54,6 +60,7 @@ struct AddItemView: View {
                                     .background(Color.blue.opacity(0.1))
                                     .clipShape(RoundedRectangle(cornerRadius: 8))
                             }
+                            .buttonStyle(.borderless)
                         }
                         
                         // QUANTITÀ
@@ -90,7 +97,7 @@ struct AddItemView: View {
                     }
                 }
                 
-                // Overlay Caricamento (se stiamo cercando il codice online)
+                // Overlay Caricamento
                 if isLoadingScan {
                     Color.black.opacity(0.4).ignoresSafeArea()
                     ProgressView("Cerco prodotto...")
@@ -111,10 +118,15 @@ struct AddItemView: View {
             // APERTURA SCANNER
             .sheet(isPresented: $showScanner) {
                 ScannerView { code in
-                    // Quando trova un codice, eseguiamo questo:
                     handleScan(code: code)
                 }
                 .ignoresSafeArea()
+            }
+            // APERTURA PICKER EMOJI
+            .sheet(isPresented: $showEmojiPicker) {
+                FoodEmojiPicker(selectedEmoji: $selectedEmoji)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
             }
         }
     }
@@ -123,18 +135,14 @@ struct AddItemView: View {
     
     private func handleScan(code: String) {
         isLoadingScan = true
-        
         Task {
-            // Cerchiamo su OpenFoodFacts tramite il codice letto
             if let product = await ProductLibrary.shared.fetchProductByBarcode(code: code) {
                 name = product.name
                 selectedEmoji = product.emoji
-                
                 if product.category == "Congelatore" { location = .freezer }
                 else if product.category == "Frigo" { location = .fridge }
                 else { location = .pantry }
             } else {
-                // Se non lo trova
                 name = "Prodotto sconosciuto"
             }
             isLoadingScan = false
@@ -142,10 +150,9 @@ struct AddItemView: View {
     }
 
     private func saveItem() {
-        let finalEmoji = selectedEmoji.isEmpty ? "🛍️" : selectedEmoji
         let newItem = FoodItem(
             name: name,
-            emoji: finalEmoji,
+            emoji: selectedEmoji,
             quantity: quantity,
             expiryDate: expiryDate,
             location: location,
@@ -166,9 +173,48 @@ struct AddItemView: View {
         
         var dateComponents = Calendar.current.dateComponents([.day, .month, .year], from: item.expiryDate)
         dateComponents.hour = 9
-        
         let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: false)
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
         UNUserNotificationCenter.current().add(request)
+    }
+}
+
+// --- NUOVO COMPONENTE: TASTIERA EMOJI CIBO ---
+struct FoodEmojiPicker: View {
+    @Binding var selectedEmoji: String
+    @Environment(\.dismiss) var dismiss
+    
+    // Lista curata delle emoji più utili per la spesa
+    let foodEmojis = [
+        "🍎", "🍐", "🍊", "🍋", "🍌", "🍉", "🍇", "🍓", "🫐", "🍈", "🍒", "🍑", "🥭", "🍍", "🥥", "🥝", "🍅", "🍆", "🥑", "🥦", "🥬", "🥒", "🌶", "🫑", "🌽", "🥕", "🫒", "🧄", "🧅", "🥔", "🍠",
+        "🥐", "🥯", "🍞", "🥖", "🥨", "🧀", "🥚", "🍳", "🧈", "🥞", "🧇", "🥓", "🥩", "🍗", "🍖", "🦴", "🌭", "🍔", "🍟", "🍕", "🫓", "🥪", "🥙", "🧆", "🌮", "🌯", "🫔", "🥗", "🥘", "🫕", "🥫",
+        "🍝", "🍜", "🍲", "🍛", "🍣", "🍱", "🥟", "🦪", "🍤", "🍙", "🍚", "🍘", "🍥", "🥠", "🍢", "🍡", "🍧", "🍨", "🍦", "🥧", "🧁", "🍰", "🎂", "🍮", "🍭", "🍬", "🍫", "🍿", "🍩", "🍪",
+        "🌰", "🥜", "🍯", "🥛", "🍼", "🫖", "☕️", "🍵", "🧃", "🥤", "🧋", "🍶", "🍺", "🍻", "🥂", "🍷", "🥃", "🍸", "🍹", "🧉", "🍾", "🧊", "🥄", "🍴", "🍽", "🥣", "🥡", "🥢", "🧂", "🛍️"
+    ]
+    
+    let columns = [GridItem(.adaptive(minimum: 45))]
+    
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 10) {
+                    ForEach(foodEmojis, id: \.self) { emoji in
+                        Button(action: {
+                            selectedEmoji = emoji
+                            dismiss()
+                        }) {
+                            Text(emoji)
+                                .font(.system(size: 40))
+                                .frame(width: 50, height: 50)
+                                .background(selectedEmoji == emoji ? Color.blue.opacity(0.2) : Color.clear)
+                                .clipShape(Circle())
+                        }
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle("Scegli Icona")
+            .navigationBarTitleDisplayMode(.inline)
+        }
     }
 }

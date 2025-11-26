@@ -34,24 +34,19 @@ struct BuddyView: View {
     var body: some View {
         VStack(spacing: 15) {
             
-            // BUDDY
-            // Usiamo una ZStack per gestire il tap senza usare Button (che causa trasparenza)
-            // oppure un Button senza style, ma rimuovendo .disabled
+            // BUDDY INTERATTIVO (Sempre Cliccabile)
             Button(action: {
-                // Eseguiamo l'azione SOLO se il frigo è vuoto (comportamento "enabled")
-                if items.isEmpty {
-                    onTap()
-                }
+                // Rimosso il controllo "if items.isEmpty". Ora funziona sempre!
+                onTap()
             }) {
                 BuddyGraphic(mood: currentMood, isOpen: isDoorOpen)
                     .scaleEffect(items.isEmpty ? 1.2 : 0.9)
                     .animation(.spring(response: 0.6, dampingFraction: 0.6), value: currentMood)
                     .animation(.spring(response: 0.6, dampingFraction: 0.7), value: isDoorOpen)
             }
-            .buttonStyle(.plain) // Nessun effetto grafico standard
-            // .disabled(!items.isEmpty) <--- RIMOSSO QUESTO PER EVITARE LA TRASPARENZA
+            .buttonStyle(.plain) // Niente effetti standard
             
-            // FUMETTO
+            // FUMETTO (Visibile solo se vuoto o neutro, opzionale)
             if !items.isEmpty || currentMood == .neutral {
                 Text(message)
                     .font(.system(.subheadline, design: .rounded))
@@ -68,6 +63,7 @@ struct BuddyView: View {
                     }
                     .transition(.opacity.combined(with: .scale))
                     .padding(.horizontal, 20)
+                    // Nasconde il fumetto se apri la porta
                     .opacity(isDoorOpen ? 0 : 1)
             }
         }
