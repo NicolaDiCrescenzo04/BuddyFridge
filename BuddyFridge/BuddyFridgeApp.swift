@@ -19,6 +19,6 @@ struct BuddyFridgeApp: App {
                 }
         }
         // 3. FONDAMENTALE: Qui usiamo FoodItem, non Item!
-        .modelContainer(for: [FoodItem.self, ShoppingItem.self])
+        .modelContainer(for: [FoodItem.self, ShoppingItem.self, FrequentItem.self])
     }
 }

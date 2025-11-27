@@ -24,21 +24,22 @@ enum ItemStatus: String, Codable {
     case toBuy = "Da Comprare"
 }
 
-// 3. IL MODELLO CIBO
 @Model
-class FoodItem {
+class FoodItem: Identifiable { // Aggiunto Identifiable per chiarezza
+    // 1. Aggiungiamo un ID esplicito che possiamo usare come String
+    @Attribute(.unique) var id: UUID
+    
     var name: String
     var emoji: String
-    var quantity: Int      // Es. 2 (pacchi)
+    var quantity: Int
     var expiryDate: Date
     var addedDate: Date
     var location: StorageLocation
     var status: ItemStatus
     var isRecurring: Bool
     
-    // NUOVI CAMPI PER IL PESO/VOLUME
-    var measureValue: Double // Es. 500 (grammi)
-    var measureUnit: MeasureUnit // Es. .grams
+    var measureValue: Double
+    var measureUnit: MeasureUnit
     
     init(name: String,
          emoji: String = "🍎",
@@ -46,9 +47,11 @@ class FoodItem {
          expiryDate: Date,
          location: StorageLocation = .fridge,
          isRecurring: Bool = false,
-         measureValue: Double = 0,    // Default 0 se sono "Pezzi" semplici
-         measureUnit: MeasureUnit = .pieces) {
+         measureValue: Double = 0,
+         measureUnit: MeasureUnit = .pieces,
+         id: UUID = UUID()) { // 2. Aggiungiamo id all'init
         
+        self.id = id // Assegniamo l'ID
         self.name = name
         self.emoji = emoji
         self.quantity = quantity
@@ -65,19 +68,17 @@ class FoodItem {
         return expiryDate < Date() && status == .available
     }
     
-    // Funzione helper per scrivere "500g" o nascondere se è solo "Pezzi"
     var formattedMeasure: String {
         if measureUnit == .pieces {
-            return "" // Non scriviamo nulla se sono pezzi generici
+            return ""
         } else {
-            // Rimuoviamo gli zeri decimali inutili (es. 1.0 kg -> 1 kg)
             let valueString = String(format: "%g", measureValue)
             return "\(valueString) \(measureUnit.rawValue)"
         }
     }
 }
 
-// 4. LA LISTA SPESA (Invariata per ora)
+// 4. LA LISTA SPESA
 @Model
 class ShoppingItem {
     var name: String
@@ -88,5 +89,29 @@ class ShoppingItem {
         self.name = name
         self.isCompleted = isCompleted
         self.addedDate = Date()
+    }
+}
+
+// 5. NUOVO: MODELLO PER I PRODOTTI FREQUENTI (La "Memoria" dell'App)
+@Model
+class FrequentItem {
+    @Attribute(.unique) var name: String // Il nome fa da chiave (es: "Mele")
+    var emoji: String
+    var defaultQuantity: Int
+    var defaultMeasureValue: Double
+    var defaultMeasureUnit: MeasureUnit
+    var defaultLocation: StorageLocation
+    var isRecurring: Bool
+    var lastUsed: Date
+    
+    init(name: String, emoji: String, defaultQuantity: Int, defaultMeasureValue: Double, defaultMeasureUnit: MeasureUnit, defaultLocation: StorageLocation, isRecurring: Bool) {
+        self.name = name
+        self.emoji = emoji
+        self.defaultQuantity = defaultQuantity
+        self.defaultMeasureValue = defaultMeasureValue
+        self.defaultMeasureUnit = defaultMeasureUnit
+        self.defaultLocation = defaultLocation
+        self.isRecurring = isRecurring
+        self.lastUsed = Date()
     }
 }

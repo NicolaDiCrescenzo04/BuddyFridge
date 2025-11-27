@@ -1,6 +1,14 @@
 import SwiftUI
 import SwiftData
 
+// 1. NUOVO ENUM PER IL FILTRO (Include "Tutto")
+enum FilterScope: String, CaseIterable {
+    case all = "Tutto"
+    case fridge = "Frigo"
+    case freezer = "Congelatore"
+    case pantry = "Dispensa"
+}
+
 struct ContentView: View {
     @Environment(\.colorScheme) var colorScheme
 
@@ -40,6 +48,9 @@ struct FridgeView: View {
     @State private var itemToAddToShop: String?
     @State private var showShopAlert = false
     
+    // NUOVO STATO: Gestisce l'apertura delle impostazioni
+    @State private var showSettings = false
+    
     @Namespace private var animationNamespace
 
     var body: some View {
@@ -53,7 +64,7 @@ struct FridgeView: View {
                 VStack(spacing: 0) {
                     
                     if items.isEmpty {
-                        // --- CASO 1: FRIGO VUOTO (GRANDE CENTRALE) ---
+                        // --- CASO 1: FRIGO VUOTO ---
                         Spacer()
                         
                         BuddyView(isDoorOpen: $isBuddyOpen) {
@@ -65,9 +76,7 @@ struct FridgeView: View {
                         Spacer()
                         
                     } else {
-                        // --- CASO 2: FRIGO PIENO (PICCOLO IN ALTO) ---
-                        
-                        // ORA È CLICCABILE ANCHE QUI!
+                        // --- CASO 2: FRIGO PIENO ---
                         BuddyView(isDoorOpen: $isBuddyOpen) {
                             apriFrigo()
                         }
@@ -75,7 +84,6 @@ struct FridgeView: View {
                         .background(backgroundColor)
                         .matchedGeometryEffect(id: "BuddyFridge", in: animationNamespace)
                         
-                        // Lista prodotti
                         ScrollView {
                             LazyVStack(spacing: 16) {
                                 ForEach(sortedProductNames, id: \.self) { productName in
@@ -100,10 +108,20 @@ struct FridgeView: View {
             .navigationTitle(items.isEmpty ? "" : "Inventario")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(backgroundColor, for: .navigationBar)
-            // NOTA: Ho rimosso completamente il blocco .toolbar con il bottone +
             
+            // --- NUOVO: BOTTONE IMPOSTAZIONI (INGRANAGGIO) ---
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: { showSettings = true }) {
+                        Image(systemName: "gearshape") // Icona ingranaggio discreta
+                            .foregroundStyle(.gray)
+                    }
+                }
+            }
+            // ------------------------------------------------
+            
+            // Scheda Aggiunta Cibo
             .sheet(isPresented: $showAddItemSheet, onDismiss: {
-                // Chiudi la porta quando finisci
                 withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
                     isBuddyOpen = false
                 }
@@ -112,6 +130,13 @@ struct FridgeView: View {
                     .presentationDetents([.fraction(0.65)])
                     .presentationDragIndicator(.visible)
             }
+            
+            // NUOVO: Scheda Impostazioni
+            .sheet(isPresented: $showSettings) {
+                SettingsView()
+            }
+            
+            // Alert Spesa
             .alert("Prodotto Finito!", isPresented: $showShopAlert) {
                 Button("Sì, metti in lista") { if let name = itemToAddToShop { addToShoppingList(name) } }
                 Button("No, grazie", role: .cancel) { }
@@ -124,11 +149,9 @@ struct FridgeView: View {
 
     // --- FUNZIONE PER APRIRE IL FRIGO ---
     private func apriFrigo() {
-        // Animazione apertura porta
         withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
             isBuddyOpen = true
         }
-        // Apri il pannello inserimento
         showAddItemSheet = true
     }
 
@@ -152,12 +175,13 @@ struct FridgeView: View {
     }
 }
 
-// --- CARD DEL PRODOTTO (Identica a prima) ---
+// --- CARD DEL PRODOTTO ---
 struct ProductCard: View {
     let productName: String
     let batches: [FoodItem]
     let onConsume: (FoodItem) -> Void
     let onDelete: (FoodItem) -> Void
+    // NESSUN parametro 'onEdit' qui
     
     @State private var isExpanded: Bool = false
     @Environment(\.colorScheme) var colorScheme
@@ -230,20 +254,31 @@ struct ProductCard: View {
     }
 }
 
+// --- RIGA SWIPEABLE ---
 struct SwipeableBatchRow<Content: View>: View {
     var onDelete: () -> Void
+    var onEdit: () -> Void
     @ViewBuilder var content: Content
+    
     @State private var offset: CGFloat = 0
     @State private var isSwiped: Bool = false
-    let deleteButtonWidth: CGFloat = 80
+    let buttonWidth: CGFloat = 70
     
     var body: some View {
         ZStack(alignment: .trailing) {
-            Color.red.overlay(alignment: .trailing) { Image(systemName: "trash.fill").foregroundStyle(.white).font(.title2).padding(.trailing, 25) }
+            HStack(spacing: 0) {
+                Spacer()
+                Button(action: { withAnimation { offset = 0; isSwiped = false }; onEdit() }) {
+                    ZStack { Color.orange; Image(systemName: "pencil").foregroundStyle(.white).font(.title2) }
+                }.frame(width: buttonWidth)
+                Button(action: { withAnimation { offset = 0; isSwiped = false }; onDelete() }) {
+                    ZStack { Color.red; Image(systemName: "trash.fill").foregroundStyle(.white).font(.title2) }
+                }.frame(width: buttonWidth)
+            }
             content.offset(x: offset)
-                .gesture(DragGesture().onChanged { value in if value.translation.width < 0 { offset = value.translation.width } }.onEnded { value in withAnimation(.spring()) { if value.translation.width < -60 { offset = -deleteButtonWidth; isSwiped = true } else { offset = 0; isSwiped = false } } })
-                .onTapGesture { if isSwiped { onDelete() } }
+                .gesture(DragGesture().onChanged { value in if value.translation.width < 0 { offset = value.translation.width } }
+                    .onEnded { value in withAnimation(.spring()) { if value.translation.width < -100 { offset = -(buttonWidth * 2); isSwiped = true } else { offset = 0; isSwiped = false } } })
         }
-        .onTapGesture { if isSwiped { onDelete() } }
+        .onTapGesture { if isSwiped { withAnimation { offset = 0; isSwiped = false } } }
     }
 }

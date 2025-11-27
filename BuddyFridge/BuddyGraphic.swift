@@ -22,11 +22,11 @@ struct BuddyGraphic: View {
             
             // 1. CORPO PRINCIPALE
             ZStack {
-                // Profondità 3D (Lato destro scuro)
+                // Profondità 3D (Lato ORA A SINISTRA)
                 RoundedRectangle(cornerRadius: 35)
                     .fill(shadowColor)
                     .frame(width: 170, height: 260)
-                    .offset(x: 10, y: 0)
+                    .offset(x: -10, y: 0) // <--- MODIFICA QUI: da 10 a -10
                 
                 // Interno del Frigo (visibile quando aperto)
                 ZStack {
@@ -44,8 +44,6 @@ struct BuddyGraphic: View {
                                 .shadow(radius: 1, y: 1)
                         }
                     }
-                    
-                    // (ELEMENTI DECORATIVI TRIANGOLO/QUADRATO RIMOSSI)
                 }
             }
             
