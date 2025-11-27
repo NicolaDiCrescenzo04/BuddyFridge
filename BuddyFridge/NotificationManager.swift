@@ -1,72 +1,94 @@
 import Foundation
 import UserNotifications
+import SwiftUI
 
 class NotificationManager {
     static let shared = NotificationManager()
     
-    // Richiesta permessi (da chiamare all'avvio se vuoi, o usiamo quello in App)
     func requestAuthorization() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, _ in
-            print("Permesso notifiche: \(granted ? "SI" : "NO")")
-        }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { _, _ in }
     }
     
-    // 1. PIANIFICA (Crea o Sovrascrive)
+    // 1. PIANIFICAZIONE INTELLIGENTE
     func scheduleNotification(for item: FoodItem) {
-        // Prima puliamo eventuali vecchie notifiche per questo item
+        // Passo 0: Pulisci sempre tutto per evitare duplicati
         cancelNotification(for: item)
         
-        // Contenuto base
+        // --- NUOVO: SE È IN CONGELATORE, STOP! ---
+        // I prodotti congelati sono "bloccati nel tempo", niente notifiche.
+        if item.location == .freezer {
+            return
+        }
+        // -----------------------------------------
+        
+        // Passo 1: Controllo Interruttore Generale
+        let isEnabled = UserDefaults.standard.object(forKey: "notificationsEnabled") as? Bool ?? true
+        if !isEnabled { return }
+        
+        // Passo 2: Recupero preferenze utente
+        let notifySameDay = UserDefaults.standard.object(forKey: "notifySameDay") as? Bool ?? true
+        let notifyOneDayBefore = UserDefaults.standard.object(forKey: "notifyOneDayBefore") as? Bool ?? true
+        let notifyFiveDaysBefore = UserDefaults.standard.object(forKey: "notifyFiveDaysBefore") as? Bool ?? false
+        
         let content = UNMutableNotificationContent()
         content.sound = .default
         
-        // A. NOTIFICA GIORNO SCADENZA (Ore 09:00)
-        content.title = "Scade oggi! ⚠️"
-        content.body = "Il prodotto '\(item.emoji) \(item.name)' scade oggi. Usalo subito!"
+        // --- A. GIORNO STESSO (09:00) ---
+        if notifySameDay {
+            content.title = "Scade oggi! ⚠️"
+            content.body = "Il prodotto '\(item.emoji) \(item.name)' scade oggi. Usalo subito!"
+            
+            var dateComponents = Calendar.current.dateComponents([.day, .month, .year], from: item.expiryDate)
+            dateComponents.hour = 9
+            dateComponents.minute = 0
+            
+            let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: false)
+            let request = UNNotificationRequest(identifier: "\(item.id.uuidString)-today", content: content, trigger: trigger)
+            UNUserNotificationCenter.current().add(request)
+        }
         
-        var dateComponents = Calendar.current.dateComponents([.day, .month, .year], from: item.expiryDate)
-        dateComponents.hour = 9
-        dateComponents.minute = 0
+        // --- B. 1 GIORNO PRIMA (18:00) ---
+        if notifyOneDayBefore {
+            scheduleAdvanceNotification(for: item, daysBefore: 1, hour: 18, idSuffix: "-1day")
+        }
         
-        let triggerDay = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: false)
-        let requestDay = UNNotificationRequest(identifier: "\(item.id.uuidString)-today", content: content, trigger: triggerDay)
-        
-        UNUserNotificationCenter.current().add(requestDay)
-        
-        // B. NOTIFICA GIORNO PRIMA (Ore 18:00)
-        // Calcoliamo la data del giorno prima
-        if let dayBeforeDate = Calendar.current.date(byAdding: .day, value: -1, to: item.expiryDate) {
-            // Verifichiamo che il giorno prima non sia già passato (es. se inserisco un prodotto che scade oggi)
-            if dayBeforeDate > Date() {
-                let contentBefore = UNMutableNotificationContent()
-                contentBefore.title = "Scade domani 🕒"
-                contentBefore.body = "Ricorda: '\(item.emoji) \(item.name)' scadrà domani."
-                contentBefore.sound = .default
+        // --- C. 5 GIORNI PRIMA (18:00) ---
+        if notifyFiveDaysBefore {
+            scheduleAdvanceNotification(for: item, daysBefore: 5, hour: 18, idSuffix: "-5days")
+        }
+    }
+    
+    private func scheduleAdvanceNotification(for item: FoodItem, daysBefore: Int, hour: Int, idSuffix: String) {
+        if let targetDate = Calendar.current.date(byAdding: .day, value: -daysBefore, to: item.expiryDate) {
+            if targetDate > Date() {
+                let content = UNMutableNotificationContent()
+                content.title = "Scadenza vicina 🕒"
+                content.body = "'\(item.emoji) \(item.name)' scade tra \(daysBefore) giorni."
+                content.sound = .default
                 
-                var dateComponentsBefore = Calendar.current.dateComponents([.day, .month, .year], from: dayBeforeDate)
-                dateComponentsBefore.hour = 18 // Avvisami alle 18:00 del giorno prima
-                dateComponentsBefore.minute = 0
+                var comps = Calendar.current.dateComponents([.day, .month, .year], from: targetDate)
+                comps.hour = hour
+                comps.minute = 0
                 
-                let triggerBefore = UNCalendarNotificationTrigger(dateMatching: dateComponentsBefore, repeats: false)
-                let requestBefore = UNNotificationRequest(identifier: "\(item.id.uuidString)-tomorrow", content: contentBefore, trigger: triggerBefore)
-                
-                UNUserNotificationCenter.current().add(requestBefore)
+                let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
+                let request = UNNotificationRequest(identifier: "\(item.id.uuidString)\(idSuffix)", content: content, trigger: trigger)
+                UNUserNotificationCenter.current().add(request)
             }
         }
     }
     
-    // 2. CANCELLA (Quando mangi o elimini)
+    // 2. CANCELLA
     func cancelNotification(for item: FoodItem) {
         let ids = [
             "\(item.id.uuidString)-today",
-            "\(item.id.uuidString)-tomorrow"
+            "\(item.id.uuidString)-1day",
+            "\(item.id.uuidString)-5days"
         ]
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ids)
     }
     
-    // 3. AGGIORNA (Quando modifichi data o nome)
+    // 3. AGGIORNA
     func updateNotification(for item: FoodItem) {
-        // È sufficiente richiamare schedule, perché al suo interno chiama già cancel
         scheduleNotification(for: item)
     }
 }

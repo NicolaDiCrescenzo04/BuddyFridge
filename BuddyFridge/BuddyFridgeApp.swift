@@ -1,24 +1,35 @@
+//
 import SwiftUI
 import SwiftData
-import UserNotifications // 1. Serve per le notifiche
+import UserNotifications
 
 @main
 struct BuddyFridgeApp: App {
+    // Creiamo il container manualmente per poter accedere al context
+    let container: ModelContainer
+    
+    init() {
+        do {
+            container = try ModelContainer(for: FoodItem.self, ShoppingItem.self, FrequentItem.self)
+        } catch {
+            fatalError("Impossibile inizializzare il database: \(error)")
+        }
+    }
+    
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .onAppear {
-                    // 2. Chiediamo il permesso per le notifiche all'avvio
-                    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
-                        if granted {
-                            print("Permesso notifiche accordato! 👍")
-                        } else {
-                            print("Niente notifiche per noi. 😢")
-                        }
+                    // 1. Notifiche
+                    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { _, _ in }
+                    
+                    // 2. Pre-caricamento dati "Stock"
+                    // Eseguiamo sul MainActor perché SwiftData non è thread-safe fuori dal contesto
+                    Task { @MainActor in
+                        DataSeeder.shared.preloadData(context: container.mainContext)
                     }
                 }
         }
-        // 3. FONDAMENTALE: Qui usiamo FoodItem, non Item!
-        .modelContainer(for: [FoodItem.self, ShoppingItem.self, FrequentItem.self])
+        .modelContainer(container)
     }
 }

@@ -25,8 +25,7 @@ enum ItemStatus: String, Codable {
 }
 
 @Model
-class FoodItem: Identifiable { // Aggiunto Identifiable per chiarezza
-    // 1. Aggiungiamo un ID esplicito che possiamo usare come String
+class FoodItem: Identifiable {
     @Attribute(.unique) var id: UUID
     
     var name: String
@@ -41,6 +40,9 @@ class FoodItem: Identifiable { // Aggiunto Identifiable per chiarezza
     var measureValue: Double
     var measureUnit: MeasureUnit
     
+    // NUOVO: Flag per sapere se la confezione è aperta
+    var isOpened: Bool
+    
     init(name: String,
          emoji: String = "🍎",
          quantity: Int = 1,
@@ -49,9 +51,10 @@ class FoodItem: Identifiable { // Aggiunto Identifiable per chiarezza
          isRecurring: Bool = false,
          measureValue: Double = 0,
          measureUnit: MeasureUnit = .pieces,
-         id: UUID = UUID()) { // 2. Aggiungiamo id all'init
+         isOpened: Bool = false, // Default chiuso
+         id: UUID = UUID()) {
         
-        self.id = id // Assegniamo l'ID
+        self.id = id
         self.name = name
         self.emoji = emoji
         self.quantity = quantity
@@ -62,6 +65,7 @@ class FoodItem: Identifiable { // Aggiunto Identifiable per chiarezza
         self.isRecurring = isRecurring
         self.measureValue = measureValue
         self.measureUnit = measureUnit
+        self.isOpened = isOpened
     }
     
     var isExpired: Bool {
@@ -92,19 +96,20 @@ class ShoppingItem {
     }
 }
 
-// 5. NUOVO: MODELLO PER I PRODOTTI FREQUENTI (La "Memoria" dell'App)
+// 5. MODELLO MEMORIA (Brain)
 @Model
 class FrequentItem {
-    @Attribute(.unique) var name: String // Il nome fa da chiave (es: "Mele")
+    @Attribute(.unique) var name: String
     var emoji: String
     var defaultQuantity: Int
     var defaultMeasureValue: Double
     var defaultMeasureUnit: MeasureUnit
     var defaultLocation: StorageLocation
     var isRecurring: Bool
+    var shelfLifeDays: Int? // Durata stimata
     var lastUsed: Date
     
-    init(name: String, emoji: String, defaultQuantity: Int, defaultMeasureValue: Double, defaultMeasureUnit: MeasureUnit, defaultLocation: StorageLocation, isRecurring: Bool) {
+    init(name: String, emoji: String, defaultQuantity: Int, defaultMeasureValue: Double, defaultMeasureUnit: MeasureUnit, defaultLocation: StorageLocation, isRecurring: Bool, shelfLifeDays: Int? = nil) {
         self.name = name
         self.emoji = emoji
         self.defaultQuantity = defaultQuantity
@@ -112,6 +117,7 @@ class FrequentItem {
         self.defaultMeasureUnit = defaultMeasureUnit
         self.defaultLocation = defaultLocation
         self.isRecurring = isRecurring
+        self.shelfLifeDays = shelfLifeDays
         self.lastUsed = Date()
     }
 }

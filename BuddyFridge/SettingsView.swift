@@ -5,18 +5,41 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     
-    // Query per ottenere tutte le "memorie" salvate, dalla più recente
+    // Query per le memorie
     @Query(sort: \FrequentItem.lastUsed, order: .reverse) private var frequentItems: [FrequentItem]
+    
+    // --- PREFERENZE NOTIFICHE (Salvate in automatico) ---
+    // Il valore dopo '=' è il default se l'utente non ha mai toccato l'impostazione
+    @AppStorage("notificationsEnabled") private var notificationsEnabled = true
+    @AppStorage("notifySameDay") private var notifySameDay = true
+    @AppStorage("notifyOneDayBefore") private var notifyOneDayBefore = true
+    @AppStorage("notifyFiveDaysBefore") private var notifyFiveDaysBefore = false // Default spento, l'utente può attivarlo
     
     var body: some View {
         NavigationStack {
             List {
-                Section {
+                // SEZIONE 1: GESTIONE NOTIFICHE
+                Section(header: Text("Notifiche Scadenze"), footer: Text("Scegli quando vuoi che Buddy ti avvisi.")) {
+                    Toggle("Abilita Notifiche", isOn: $notificationsEnabled)
+                        .tint(.blue)
+                    
+                    if notificationsEnabled {
+                        Group {
+                            Toggle("Giorno stesso (ore 09:00)", isOn: $notifySameDay)
+                            Toggle("1 Giorno prima (ore 18:00)", isOn: $notifyOneDayBefore)
+                            Toggle("5 Giorni prima (ore 18:00)", isOn: $notifyFiveDaysBefore)
+                        }
+                        .padding(.leading, 10) // Leggero rientro visivo
+                    }
+                }
+                
+                // SEZIONE 2: MEMORIE PRODOTTI (Quella di prima)
+                Section(header: Text("Memorie Prodotti"), footer: Text("Scorri a sinistra per dimenticare un'abitudine.")) {
                     if frequentItems.isEmpty {
                         ContentUnavailableView(
                             "Nessuna memoria",
                             systemImage: "brain.head.profile",
-                            description: Text("Buddy imparerà le tue preferenze man mano che inserisci prodotti.")
+                            description: Text("Buddy impara mentre usi l'app.")
                         )
                     } else {
                         ForEach(frequentItems) { item in
@@ -29,7 +52,6 @@ struct SettingsView: View {
                                     Text(item.name)
                                         .font(.headline)
                                     
-                                    // Mostra un riassunto della preferenza imparata
                                     Text("Ricorda: x\(item.defaultQuantity) in \(item.defaultLocation.rawValue)")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
@@ -38,10 +60,6 @@ struct SettingsView: View {
                         }
                         .onDelete(perform: deleteItems)
                     }
-                } header: {
-                    Text("Memorie Prodotti")
-                } footer: {
-                    Text("Questi sono i prodotti di cui Buddy ha imparato le tue preferenze (quantità, icona, posizione). Scorri verso sinistra per eliminarli se le tue abitudini sono cambiate.")
                 }
             }
             .navigationTitle("Impostazioni")
@@ -54,7 +72,6 @@ struct SettingsView: View {
         }
     }
     
-    // Funzione per eliminare la memoria
     private func deleteItems(offsets: IndexSet) {
         withAnimation {
             for index in offsets {

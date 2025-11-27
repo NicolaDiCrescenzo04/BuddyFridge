@@ -304,29 +304,21 @@ struct MoveToFridgeView: View {
     }
     
     private func confirmMove() {
-        let newFood = FoodItem(
-            name: shoppingItem.name,
-            emoji: selectedEmoji,
-            quantity: quantity,
-            expiryDate: expiryDate,
-            location: location
-        )
-        modelContext.insert(newFood)
-        
-        // Notifica
-        let content = UNMutableNotificationContent()
-        content.title = "Scadenza in arrivo! ⚠️"
-        content.body = "'\(newFood.name)' sta per scadere."
-        content.sound = .default
-        var dateComponents = Calendar.current.dateComponents([.day, .month, .year], from: expiryDate)
-        dateComponents.hour = 9
-        let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: false)
-        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
-        UNUserNotificationCenter.current().add(request)
-        
-        modelContext.delete(shoppingItem)
-        dismiss()
-    }
+            let newFood = FoodItem(
+                name: shoppingItem.name,
+                emoji: selectedEmoji,
+                quantity: quantity,
+                expiryDate: expiryDate,
+                location: location
+            )
+            modelContext.insert(newFood)
+            
+            // 1. NUOVO: PIANIFICA LA NOTIFICA
+            NotificationManager.shared.scheduleNotification(for: newFood)
+            
+            modelContext.delete(shoppingItem)
+            dismiss()
+        }
     
     private func addDays(_ days: Int) {
         if let newDate = Calendar.current.date(byAdding: .day, value: days, to: Date()) {
