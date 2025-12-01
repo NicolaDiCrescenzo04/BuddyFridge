@@ -10,6 +10,9 @@ struct EditItemView: View {
     // Stato per l'avviso scongelamento
     @State private var showThawAlert = false
     
+    // Variabile temporanea per gestire la data nel DatePicker
+    @State private var tempDate: Date = Date()
+    
     var body: some View {
         NavigationStack {
             Form {
@@ -34,7 +37,32 @@ struct EditItemView: View {
                     }
                     .pickerStyle(.segmented)
                     
-                    DatePicker("Scadenza", selection: $item.expiryDate, displayedComponents: .date)
+                    // --- MODIFICA: GESTIONE DATA OPZIONALE ---
+                    Toggle("Ha una scadenza?", isOn: Binding(
+                        get: { item.expiryDate != nil },
+                        set: { hasDate in
+                            withAnimation {
+                                if hasDate {
+                                    // Se attiviamo, impostiamo la data salvata o oggi
+                                    item.expiryDate = tempDate
+                                } else {
+                                    // Se disattiviamo, diventa nil
+                                    item.expiryDate = nil
+                                }
+                            }
+                        }
+                    ))
+                    
+                    if item.expiryDate != nil {
+                        DatePicker("Scadenza", selection: Binding(
+                            get: { item.expiryDate ?? tempDate },
+                            set: { newDate in
+                                tempDate = newDate
+                                item.expiryDate = newDate
+                            }
+                        ), displayedComponents: .date)
+                    }
+                    // ------------------------------------------
                 }
             }
             .navigationTitle("Modifica")
@@ -49,6 +77,11 @@ struct EditItemView: View {
             .onAppear {
                 // Salviamo la posizione di partenza
                 originalLocation = item.location
+                
+                // Se l'oggetto ha una data, la carichiamo nella variabile temporanea
+                if let date = item.expiryDate {
+                    tempDate = date
+                }
             }
             // AVVISO BUDDY SCONGELAMENTO
             .alert("Buddy ti ricorda:", isPresented: $showThawAlert) {
@@ -71,6 +104,7 @@ struct EditItemView: View {
     }
     
     private func finalizeSave() {
+        // Aggiorniamo la notifica (se la data è stata rimossa, il manager gestirà la cancellazione)
         NotificationManager.shared.updateNotification(for: item)
         dismiss()
     }

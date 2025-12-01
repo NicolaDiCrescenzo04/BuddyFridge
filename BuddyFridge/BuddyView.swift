@@ -20,11 +20,24 @@ struct BuddyView: View {
         // Se tutto è nel congelatore, Buddy è felice (o neutro se vuoto attivo)
         if activeItems.isEmpty { return .happy }
         
+        // 1. Controlliamo se qualcosa è GIÀ scaduto
+        // Nota: .isExpired gestisce già il caso nil (restituisce false), quindi qui siamo salvi
         let hasExpiredItems = activeItems.contains { $0.isExpired }
         if hasExpiredItems { return .sad }
         
+        // 2. Controlliamo se qualcosa sta PER scadere (entro 2 giorni)
         let soonDate = Calendar.current.date(byAdding: .day, value: 2, to: Date())!
-        if activeItems.contains(where: { $0.expiryDate <= soonDate && !$0.isExpired }) { return .worried }
+        
+        // MODIFICA QUI: Dobbiamo scompattare la data opzionale
+        let isWorried = activeItems.contains { item in
+            // Se non ha scadenza, non ci preoccupa
+            guard let expiry = item.expiryDate else { return false }
+            
+            // Se ha scadenza, controlliamo se è vicina e se non è già scaduto
+            return expiry <= soonDate && !item.isExpired
+        }
+        
+        if isWorried { return .worried }
         
         return .happy
     }

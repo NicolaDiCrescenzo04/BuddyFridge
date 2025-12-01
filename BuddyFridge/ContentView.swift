@@ -39,6 +39,8 @@ struct ContentView: View {
 struct FridgeView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) var colorScheme
+    
+    // La Query recupera già gli elementi ordinati per data, ma gestiamo l'ordine finale nel body.
     @Query(sort: \FoodItem.expiryDate) private var items: [FoodItem]
     
     let backgroundColor: Color
@@ -70,8 +72,16 @@ struct FridgeView: View {
     }
 
     var body: some View {
+        // 1. Raggruppiamo gli elementi per nome
         let groupedItems = Dictionary(grouping: filteredItems, by: { $0.name })
-        let sortedProductNames = groupedItems.keys.sorted()
+        
+        // 2. MODIFICA: Ordiniamo i NOMI dei prodotti in base alla scadenza del loro primo lotto
+        // Se un prodotto non ha scadenza (nil), lo consideriamo nel futuro lontano (.distantFuture)
+        let sortedProductNames = groupedItems.keys.sorted { name1, name2 in
+            let date1 = groupedItems[name1]?.first?.expiryDate ?? Date.distantFuture
+            let date2 = groupedItems[name2]?.first?.expiryDate ?? Date.distantFuture
+            return date1 < date2
+        }
 
         NavigationStack {
             ZStack {
@@ -121,7 +131,7 @@ struct FridgeView: View {
                                                 onConsumePartial: { batch, fraction in consumePartial(batch, remainingFraction: fraction) },
                                                 onDelete: { batch in deleteItem(batch) },
                                                 onEdit: { batch in itemToEdit = batch },
-                                                onOpenRequest: { batch, days in requestOpen(item: batch, days: days) } // <--- Nuova Logica
+                                                onOpenRequest: { batch, days in requestOpen(item: batch, days: days) }
                                             )
                                             .transition(.scale.combined(with: .opacity))
                                         }
@@ -251,12 +261,20 @@ struct ProductCard: View {
     
     var firstItem: FoodItem? { batches.first }
     
+    // Logica colori aggiornata per gestire le date opzionali
     var statusColor: Color {
         if batches.contains(where: { $0.isOpened }) { return .orange }
         if let first = firstItem, first.location == .freezer { return .cyan }
         if batches.contains(where: { $0.isExpired }) { return .red }
+        
         let soonDate = Calendar.current.date(byAdding: .day, value: 3, to: Date())!
-        if batches.contains(where: { $0.expiryDate <= soonDate }) { return .orange }
+        
+        // Controlliamo se c'è almeno un batch che scade presto (e che ha una data)
+        if batches.contains(where: {
+            guard let date = $0.expiryDate else { return false }
+            return date <= soonDate
+        }) { return .orange }
+        
         return .green
     }
     
@@ -278,11 +296,21 @@ struct ProductCard: View {
                                 if first.location == .freezer {
                                     Text("Congelato ❄️").font(.caption).fontWeight(.semibold).foregroundStyle(.cyan)
                                 } else if first.isOpened {
-                                    Text("APERTO - Scade: \(first.expiryDate.formatted(date: .abbreviated, time: .omitted))")
-                                        .font(.caption).fontWeight(.bold).foregroundStyle(.orange)
+                                    if let date = first.expiryDate {
+                                        Text("APERTO - Scade: \(date.formatted(date: .abbreviated, time: .omitted))")
+                                            .font(.caption).fontWeight(.bold).foregroundStyle(.orange)
+                                    } else {
+                                        Text("APERTO").font(.caption).fontWeight(.bold).foregroundStyle(.orange)
+                                    }
                                 } else {
-                                    Text("Scade: \(first.expiryDate.formatted(date: .abbreviated, time: .omitted))")
-                                        .font(.caption).foregroundStyle(first.isExpired ? .red : .secondary)
+                                    // MODIFICA QUI: GESTIONE DATA NIL
+                                    if let date = first.expiryDate {
+                                        Text("Scade: \(date.formatted(date: .abbreviated, time: .omitted))")
+                                            .font(.caption).foregroundStyle(first.isExpired ? .red : .secondary)
+                                    } else {
+                                        Text("Nessuna scadenza")
+                                            .font(.caption).foregroundStyle(.green)
+                                    }
                                 }
                             }
                         }
@@ -311,11 +339,20 @@ struct ProductCard: View {
                                             Text("APERTO").fontWeight(.bold)
                                         }
                                         .font(.caption).foregroundStyle(.orange)
-                                        Text("Scade: \(batch.expiryDate.formatted(date: .abbreviated, time: .omitted))")
-                                            .font(.subheadline).foregroundStyle(.primary)
+                                        
+                                        if let date = batch.expiryDate {
+                                            Text("Scade: \(date.formatted(date: .abbreviated, time: .omitted))")
+                                                .font(.subheadline).foregroundStyle(.primary)
+                                        }
                                     } else {
-                                        Text("Scade: \(batch.expiryDate.formatted(date: .abbreviated, time: .omitted))")
-                                            .font(.subheadline).foregroundStyle(batch.isExpired ? .red : .primary)
+                                        // MODIFICA QUI: GESTIONE DATA NIL NELLA LISTA ESPANSA
+                                        if let date = batch.expiryDate {
+                                            Text("Scade: \(date.formatted(date: .abbreviated, time: .omitted))")
+                                                .font(.subheadline).foregroundStyle(batch.isExpired ? .red : .primary)
+                                        } else {
+                                            Text("Nessuna scadenza")
+                                                .font(.subheadline).foregroundStyle(.green)
+                                        }
                                     }
                                     HStack {
                                         Text(batch.location.rawValue)

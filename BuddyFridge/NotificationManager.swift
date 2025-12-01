@@ -14,12 +14,16 @@ class NotificationManager {
         // Passo 0: Pulisci sempre tutto per evitare duplicati
         cancelNotification(for: item)
         
-        // --- NUOVO: SE È IN CONGELATORE, STOP! ---
-        // I prodotti congelati sono "bloccati nel tempo", niente notifiche.
+        // --- SE È IN CONGELATORE, STOP! ---
         if item.location == .freezer {
             return
         }
-        // -----------------------------------------
+        
+        // --- MODIFICA: SE NON HA SCADENZA, STOP! ---
+        // Se non c'è una data (è nil), non pianifichiamo notifiche.
+        guard let expiryDate = item.expiryDate else {
+            return
+        }
         
         // Passo 1: Controllo Interruttore Generale
         let isEnabled = UserDefaults.standard.object(forKey: "notificationsEnabled") as? Bool ?? true
@@ -38,7 +42,8 @@ class NotificationManager {
             content.title = "Scade oggi! ⚠️"
             content.body = "Il prodotto '\(item.emoji) \(item.name)' scade oggi. Usalo subito!"
             
-            var dateComponents = Calendar.current.dateComponents([.day, .month, .year], from: item.expiryDate)
+            // MODIFICA: Usiamo 'expiryDate' (la variabile sicura scompattata sopra) invece di item.expiryDate
+            var dateComponents = Calendar.current.dateComponents([.day, .month, .year], from: expiryDate)
             dateComponents.hour = 9
             dateComponents.minute = 0
             
@@ -59,7 +64,10 @@ class NotificationManager {
     }
     
     private func scheduleAdvanceNotification(for item: FoodItem, daysBefore: Int, hour: Int, idSuffix: String) {
-        if let targetDate = Calendar.current.date(byAdding: .day, value: -daysBefore, to: item.expiryDate) {
+        // MODIFICA: Controlliamo di nuovo che la data esista per sicurezza
+        guard let expiryDate = item.expiryDate else { return }
+        
+        if let targetDate = Calendar.current.date(byAdding: .day, value: -daysBefore, to: expiryDate) {
             if targetDate > Date() {
                 let content = UNMutableNotificationContent()
                 content.title = "Scadenza vicina 🕒"

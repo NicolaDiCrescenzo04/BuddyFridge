@@ -31,7 +31,10 @@ class FoodItem: Identifiable {
     var name: String
     var emoji: String
     var quantity: Int
-    var expiryDate: Date
+    
+    // MODIFICA 1: Ora è opzionale (può essere nil)
+    var expiryDate: Date?
+    
     var addedDate: Date
     var location: StorageLocation
     var status: ItemStatus
@@ -39,19 +42,17 @@ class FoodItem: Identifiable {
     
     var measureValue: Double
     var measureUnit: MeasureUnit
-    
-    // NUOVO: Flag per sapere se la confezione è aperta
     var isOpened: Bool
     
     init(name: String,
          emoji: String = "🍎",
          quantity: Int = 1,
-         expiryDate: Date,
+         expiryDate: Date? = nil, // Default nil
          location: StorageLocation = .fridge,
          isRecurring: Bool = false,
          measureValue: Double = 0,
          measureUnit: MeasureUnit = .pieces,
-         isOpened: Bool = false, // Default chiuso
+         isOpened: Bool = false,
          id: UUID = UUID()) {
         
         self.id = id
@@ -69,10 +70,13 @@ class FoodItem: Identifiable {
     }
     
     var isExpired: Bool {
-        return expiryDate < Date() && status == .available
+        // Se non ha data, non scade mai (quindi false)
+        guard let date = expiryDate else { return false }
+        return date < Date() && status == .available
     }
     
     var formattedMeasure: String {
+        // ... (codice precedente invariato)
         if measureUnit == .pieces {
             return ""
         } else {

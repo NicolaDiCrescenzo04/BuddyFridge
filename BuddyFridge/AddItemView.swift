@@ -20,6 +20,8 @@ struct AddItemView: View {
     @State private var measureUnit: MeasureUnit = .pieces
     
     // Scadenza e Posizione
+    // MODIFICA: hasExpiry controlla se attivare la logica
+    @State private var hasExpiry: Bool = true
     @State private var expiryDate: Date = Date()
     @State private var location: StorageLocation = .fridge
     
@@ -47,10 +49,7 @@ struct AddItemView: View {
                             
                             TextField("Nome prodotto", text: $name)
                                 .onChange(of: name) { oldValue, newValue in
-                                    // Se l'utente cancella tutto, resettiamo ai valori base per pulizia
-                                    if newValue.isEmpty {
-                                        resetFields()
-                                    }
+                                    if newValue.isEmpty { resetFields() }
                                 }
                             
                             Button(action: { showScanner = true }) {
@@ -66,7 +65,6 @@ struct AddItemView: View {
                         
                         // --- 2. ZONA SUGGERIMENTI INTELLIGENTI ---
                         if !name.isEmpty {
-                            // Filtriamo la memoria per trovare corrispondenze
                             let suggestions = frequentItems.filter {
                                 $0.name.localizedCaseInsensitiveContains(name) && $0.name != name
                             }
@@ -80,7 +78,7 @@ struct AddItemView: View {
                                                     Text(item.emoji)
                                                     VStack(alignment: .leading, spacing: 0) {
                                                         Text(item.name).font(.subheadline).fontWeight(.semibold)
-                                                        Text("x\(item.defaultQuantity) \(item.defaultMeasureUnit == .pieces ? "" : item.defaultMeasureUnit.rawValue)").font(.caption).opacity(0.8)
+                                                        Text("x\(item.defaultQuantity)").font(.caption).opacity(0.8)
                                                     }
                                                 }
                                                 .padding(.horizontal, 12)
@@ -92,11 +90,10 @@ struct AddItemView: View {
                                         }
                                     }
                                 }
-                                .listRowInsets(EdgeInsets()) // Toglie il padding laterale della lista
+                                .listRowInsets(EdgeInsets())
                                 .padding(.vertical, 5)
                             }
                         }
-                        // ----------------------------------------
                         
                         Stepper("Numero Pezzi: \(quantity)", value: $quantity, in: 1...100)
                         
@@ -126,7 +123,25 @@ struct AddItemView: View {
                                 Text(loc.rawValue).tag(loc)
                             }
                         }
-                        DatePicker("Scadenza", selection: $expiryDate, displayedComponents: .date)
+                        
+                        // --- LOGICA SCADENZA FACOLTATIVA ---
+                        Toggle("Ha una scadenza?", isOn: $hasExpiry)
+                        
+                        if hasExpiry {
+                            DatePicker("Scadenza", selection: $expiryDate, displayedComponents: .date)
+                            
+                            // BOTTONI RAPIDI "Consumare in..."
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 10) {
+                                    QuickDateButton(days: 2, label: "+2 gg", current: expiryDate, action: setDate)
+                                    QuickDateButton(days: 4, label: "+4 gg", current: expiryDate, action: setDate)
+                                    QuickDateButton(days: 7, label: "+1 sett", current: expiryDate, action: setDate)
+                                    QuickDateButton(days: 14, label: "+2 sett", current: expiryDate, action: setDate)
+                                    QuickDateButton(days: 30, label: "+1 mese", current: expiryDate, action: setDate)
+                                }
+                            }
+                            .padding(.top, 5)
+                        }
                     }
                 }
                 
@@ -157,7 +172,14 @@ struct AddItemView: View {
     
     // --- LOGICA ---
     
-    // Applica i dati dalla memoria storica (Inclusa la scadenza intelligente!)
+    private func setDate(days: Int) {
+        if let newDate = Calendar.current.date(byAdding: .day, value: days, to: Date()) {
+            withAnimation {
+                self.expiryDate = newDate
+            }
+        }
+    }
+    
     private func applySuggestion(_ item: FrequentItem) {
         withAnimation {
             self.name = item.name
@@ -168,14 +190,15 @@ struct AddItemView: View {
             self.location = item.defaultLocation
             self.isRecurring = item.isRecurring
             
-            // --- CALCOLO SCADENZA INTELLIGENTE ---
-            // Se la memoria ha una durata (es. Banane = 5gg), imposta la data
+            // Logica Intelligente Data
             if let days = item.shelfLifeDays {
+                self.hasExpiry = true
                 if let smartDate = Calendar.current.date(byAdding: .day, value: days, to: Date()) {
                     self.expiryDate = smartDate
                 }
             } else {
-                // Se non c'è durata salvata, resetta a oggi
+                // Se non c'è durata salvata, magari è un prodotto senza scadenza?
+                // Per ora lasciamo default true/oggi, l'utente deciderà
                 self.expiryDate = Date()
             }
         }
@@ -205,12 +228,14 @@ struct AddItemView: View {
     }
     
     private func saveItem() {
-        // 1. Salva l'oggetto nel frigo
+        // Determiniamo la data finale: nil se hasExpiry è false
+        let finalDate: Date? = hasExpiry ? expiryDate : nil
+        
         let newItem = FoodItem(
             name: name,
             emoji: selectedEmoji,
             quantity: quantity,
-            expiryDate: expiryDate,
+            expiryDate: finalDate, // Passiamo l'opzionale
             location: location,
             isRecurring: isRecurring,
             measureValue: measureValue,
@@ -218,22 +243,24 @@ struct AddItemView: View {
         )
         modelContext.insert(newItem)
         
-        // 2. PIANIFICA LA NOTIFICA (Usando il Manager centralizzato)
-        NotificationManager.shared.scheduleNotification(for: newItem)
+        // Pianifica notifica SOLO se c'è una data
+        if let _ = finalDate {
+            NotificationManager.shared.scheduleNotification(for: newItem)
+        }
         
-        // 3. AGGIORNA MEMORIA
-        updateFrequencyHistory()
+        updateFrequencyHistory(finalDate: finalDate)
         
         dismiss()
     }
     
-    //
-    
-    private func updateFrequencyHistory() {
-        // Calcoliamo i giorni di differenza tra oggi e la scadenza inserita
-        let daysDiff = Calendar.current.dateComponents([.day], from: Date(), to: expiryDate).day ?? 0
-        // Se la scadenza è oggi, non salviamo 0 giorni perché potrebbe essere un errore, salviamo nil
-        let estimatedShelfLife = daysDiff > 0 ? daysDiff : nil
+    private func updateFrequencyHistory(finalDate: Date?) {
+        // Se non c'è scadenza, salviamo nil come durata stimata
+        var estimatedShelfLife: Int? = nil
+        
+        if let date = finalDate {
+            let daysDiff = Calendar.current.dateComponents([.day], from: Date(), to: date).day ?? 0
+            estimatedShelfLife = daysDiff > 0 ? daysDiff : nil
+        }
         
         if let existingItem = frequentItems.first(where: { $0.name.lowercased() == name.lowercased() }) {
             existingItem.emoji = selectedEmoji
@@ -244,7 +271,7 @@ struct AddItemView: View {
             existingItem.isRecurring = isRecurring
             existingItem.lastUsed = Date()
             
-            // Aggiorniamo la durata stimata solo se l'utente ha messo una data futura
+            // Aggiorniamo la durata anche nella memoria
             if let life = estimatedShelfLife {
                 existingItem.shelfLifeDays = life
             }
@@ -257,18 +284,39 @@ struct AddItemView: View {
                 defaultMeasureUnit: measureUnit,
                 defaultLocation: location,
                 isRecurring: isRecurring,
-                shelfLifeDays: estimatedShelfLife // Salviamo la durata!
+                shelfLifeDays: estimatedShelfLife
             )
             modelContext.insert(newFrequent)
         }
     }
     
-    // --- NUOVO COMPONENTE: TASTIERA EMOJI FILTRATA ---
+    // Componente Tasto Rapido
+    struct QuickDateButton: View {
+        let days: Int
+        let label: String
+        let current: Date
+        let action: (Int) -> Void
+        
+        var body: some View {
+            Button(action: { action(days) }) {
+                Text(label)
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color.blue.opacity(0.1))
+                    .foregroundStyle(.blue)
+                    .cornerRadius(8)
+            }
+        }
+    }
     
+    // --- STRUTTURA MANCANTE ---
     struct EmojiItem: Hashable {
         let icon: String
         let keywords: String
     }
+    // --------------------------
     
     struct FoodEmojiPicker: View {
         @Binding var selectedEmoji: String
