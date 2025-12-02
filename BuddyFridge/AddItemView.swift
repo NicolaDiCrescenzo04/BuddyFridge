@@ -63,7 +63,7 @@ struct AddItemView: View {
                             .buttonStyle(.borderless)
                         }
                         
-                        // --- 2. ZONA SUGGERIMENTI INTELLIGENTI ---
+                        // --- 2. ZONA SUGGERIMENTI INTELLIGENTI (SOLO LOCALE) ---
                         if !name.isEmpty {
                             let suggestions = frequentItems.filter {
                                 $0.name.localizedCaseInsensitiveContains(name) && $0.name != name
@@ -197,8 +197,6 @@ struct AddItemView: View {
                     self.expiryDate = smartDate
                 }
             } else {
-                // Se non c'è durata salvata, magari è un prodotto senza scadenza?
-                // Per ora lasciamo default true/oggi, l'utente deciderà
                 self.expiryDate = Date()
             }
         }
@@ -473,5 +471,4 @@ struct AddItemView: View {
             }
         }
     }
-    
 }

@@ -80,9 +80,27 @@ class DataScannerViewController: UIViewController {
         previewLayer.videoGravity = .resizeAspectFill
         view.layer.addSublayer(previewLayer)
         
-        // Avvia la sessione in background per non bloccare la UI
-        DispatchQueue.global(qos: .background).async {
-            self.captureSession.startRunning()
+        // La sessione verrà avviata in viewWillAppear per correttezza
+    }
+    
+    // CORREZIONE: Gestione ciclo di vita per risparmio batteria
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        
+        if captureSession != nil && !captureSession.isRunning {
+            DispatchQueue.global(qos: .background).async {
+                self.captureSession.startRunning()
+            }
+        }
+    }
+    
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        
+        if captureSession != nil && captureSession.isRunning {
+            DispatchQueue.global(qos: .background).async {
+                self.captureSession.stopRunning()
+            }
         }
     }
 }

@@ -136,7 +136,7 @@ struct ShoppingListView: View {
     }
 }
 
-// --- RIGA PERSONALIZZATA (CARD CON SWIPE) ---
+// --- RIGA PERSONALIZZATA (CARD CON SWIPE OTTIMIZZATO) ---
 struct ShoppingItemRow: View {
     let item: ShoppingItem
     let cardBackground: Color
@@ -196,13 +196,16 @@ struct ShoppingItemRow: View {
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .shadow(color: .black.opacity(0.05), radius: 2, x: 0, y: 1)
             .offset(x: offset)
-            // GESTURE DI SWIPE
+            // GESTURE DI SWIPE MIGLIORATA
             .gesture(
-                DragGesture()
+                DragGesture(minimumDistance: 30, coordinateSpace: .local)
                     .onChanged { value in
-                        // Permetti solo swipe a sinistra
-                        if value.translation.width < 0 {
-                            offset = value.translation.width
+                        // CORREZIONE: Attiva solo se il movimento è prevalentemente orizzontale
+                        if abs(value.translation.width) > abs(value.translation.height) {
+                            // Permetti solo swipe a sinistra
+                            if value.translation.width < 0 {
+                                offset = value.translation.width
+                            }
                         }
                     }
                     .onEnded { value in
@@ -218,7 +221,7 @@ struct ShoppingItemRow: View {
                         }
                     }
             )
-            // Se è aperto il cestino, un tap chiude o elimina (qui impostato per eliminare se tappi rosso)
+            // Se è aperto il cestino, un tap chiude o elimina
             .onTapGesture {
                 if isSwiped { onDelete() }
             }
