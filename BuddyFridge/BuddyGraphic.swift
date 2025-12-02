@@ -11,31 +11,28 @@ struct BuddyGraphic: View {
     
     var body: some View {
         ZStack {
-            // 0. VAPORE (Solo se felice o preoccupato)
-            if mood == .happy || mood == .worried {
+            // 0. VAPORE (Solo se felice o preoccupato e NON sta osservando)
+            if (mood == .happy || mood == .worried) && mood != .observing {
                 SteamView(mood: mood)
                     .offset(y: -110)
                     .opacity(isOpen ? 0 : 1)
             }
             
-            // (BRACCIA RIMOSSE PER PULIZIA)
-            
             // 1. CORPO PRINCIPALE
             ZStack {
-                // Profondità 3D (Lato ORA A SINISTRA)
+                // Profondità 3D
                 RoundedRectangle(cornerRadius: 35)
                     .fill(shadowColor)
                     .frame(width: 170, height: 260)
-                    .offset(x: -10, y: 0) // <--- MODIFICA QUI: da 10 a -10
+                    .offset(x: -10, y: 0)
                 
-                // Interno del Frigo (visibile quando aperto)
+                // Interno del Frigo
                 ZStack {
                     RoundedRectangle(cornerRadius: 35)
                         .fill(insideColor)
                         .frame(width: 160, height: 260)
                         .overlay(RoundedRectangle(cornerRadius: 35).stroke(Color.white, lineWidth: 4))
                     
-                    // Ripiani
                     VStack(spacing: 60) {
                         ForEach(0..<3) { _ in
                             Rectangle()
@@ -55,9 +52,9 @@ struct BuddyGraphic: View {
                     .frame(width: 160, height: 260)
                     .overlay(RoundedRectangle(cornerRadius: 35).stroke(Color.white.opacity(0.3), lineWidth: 1))
                 
-                // Dettagli Porta (Maniglia + Faccia)
+                // Dettagli Porta
                 ZStack {
-                    // Maniglia (Sinistra)
+                    // Maniglia
                     ZStack {
                         RoundedRectangle(cornerRadius: 4).fill(Color.black.opacity(0.1)).frame(width: 8, height: 50).offset(x: 2)
                         RoundedRectangle(cornerRadius: 4).fill(LinearGradient(colors: [.white, .gray], startPoint: .leading, endPoint: .trailing)).frame(width: 10, height: 50)
@@ -77,7 +74,16 @@ struct BuddyGraphic: View {
                             }
                             .frame(height: 10).offset(y: -6)
                         }
-                        MouthView(mood: mood).padding(.top, 4)
+                        
+                        // La bocca sparisce o si rimpicciolisce quando osserva per concentrarsi
+                        if mood != .observing {
+                            MouthView(mood: mood).padding(.top, 4)
+                        } else {
+                            // Bocca piccola "O" concentrata
+                            Circle().stroke(Color.black.opacity(0.6), lineWidth: 2)
+                                .frame(width: 8, height: 8)
+                                .padding(.top, 4)
+                        }
                         Spacer()
                     }
                     .frame(height: 260)
@@ -85,7 +91,7 @@ struct BuddyGraphic: View {
             }
             .rotation3DEffect(.degrees(isOpen ? 80 : 0), axis: (x: 0, y: 1, z: 0), anchor: .trailing, perspective: 0.5)
             
-            // 3. Cerniere (Destra)
+            // 3. Cerniere
             VStack(spacing: 140) {
                 ForEach(0..<2) { _ in RoundedRectangle(cornerRadius: 2).fill(Color.white.opacity(0.5)).frame(width: 6, height: 15).shadow(radius: 1) }
             }.offset(x: 80)
@@ -97,9 +103,13 @@ struct BuddyGraphic: View {
 
 struct EyeView: View {
     var mood: BuddyView.BuddyMood
+    
     var body: some View {
         ZStack {
-            // Occhio base con maschera per espressioni (triste/preoccupato)
+            // Sclera (Bianco dell'occhio) - Nascosto dietro la maschera nera nel design originale
+            // Qui usiamo la logica originale: Cerchio nero con riflesso
+            
+            // Occhio base
             Circle().fill(Color.black.opacity(0.85)).frame(width: 18, height: 18)
                 .mask(
                     ZStack {
@@ -110,15 +120,21 @@ struct EyeView: View {
                         if mood == .worried {
                             Rectangle().frame(width: 22, height: 10).offset(y: -10).rotationEffect(.degrees(-15)).blendMode(.destinationOut)
                         }
+                        // Non mascheriamo nulla per .observing, usiamo l'occhio tondo
                     }.compositingGroup()
                 )
             
-            // Riflesso (se non è triste)
+            // Pupilla / Riflesso
             if mood != .sad {
-                Circle().fill(Color.white).frame(width: 6, height: 6).offset(x: 4, y: -4)
+                // Se osserva, la pupilla guarda in basso
+                let yOffset: CGFloat = (mood == .observing) ? 4 : -4
+                let xOffset: CGFloat = (mood == .observing) ? 0 : 4
+                let size: CGFloat = (mood == .observing) ? 5 : 6 // Un po' più piccola se osserva
+                
+                Circle().fill(Color.white)
+                    .frame(width: size, height: size)
+                    .offset(x: xOffset, y: yOffset)
             }
-            
-            // (SOPRACCIGLIA FELICI RIMOSSE)
         }
     }
 }
@@ -132,6 +148,7 @@ struct MouthView: View {
             case .neutral: Capsule().fill(Color.black.opacity(0.8)).frame(width: 14, height: 3)
             case .worried: Circle().stroke(Color.black.opacity(0.8), lineWidth: 3).frame(width: 10, height: 10)
             case .sad: SmileShape().stroke(Color.black.opacity(0.8), style: StrokeStyle(lineWidth: 3, lineCap: .round)).frame(width: 32, height: 16).rotationEffect(.degrees(180))
+            case .observing: EmptyView() // Gestito sopra
             }
         }
     }

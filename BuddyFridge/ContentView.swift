@@ -39,12 +39,11 @@ struct ContentView: View {
 struct FridgeView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) var colorScheme
-    
-    // La Query recupera già gli elementi ordinati per data, ma gestiamo l'ordine finale nel body.
     @Query(sort: \FoodItem.expiryDate) private var items: [FoodItem]
     
     let backgroundColor: Color
     
+    // Stati Gestione
     @State private var showAddItemSheet = false
     @State private var isBuddyOpen = false
     @State private var itemToAddToShop: String?
@@ -52,55 +51,103 @@ struct FridgeView: View {
     @State private var showSettings = false
     @State private var itemToEdit: FoodItem?
     
-    // --- STATI PER APERTURA PACCHI MULTIPLI (Spinacine vs Latte) ---
-    @State private var itemPendingOpen: FoodItem?      // L'oggetto che stai per aprire
-    @State private var pendingOpenDuration: Int = 0    // La durata scelta (es. 3 giorni)
-    @State private var showOpenQuantityDialog = false  // Mostra il menu di scelta
-    
-    // STATO FILTRO
+    // STATO RICERCA E FILTRI
+    @State private var searchText = ""
+    @FocusState private var isSearchFocused: Bool
     @State private var selectedFilter: FilterScope = .all
+    
+    // --- GESTIONE BOTTOM SHEET ---
+    private let restingHeight: CGFloat = 320
+    @State private var dragOffset: CGFloat = 0
+    @State private var isExpanded: Bool = false
+    
+    // --- GESTIONE APERTURA PACCHI ---
+    @State private var itemPendingOpen: FoodItem?
+    @State private var pendingOpenDuration: Int = 0
+    @State private var showOpenQuantityDialog = false
     
     @Namespace private var animationNamespace
 
+    // Colore sfondo card
+    var cardBackground: Color { Color(uiColor: .secondarySystemGroupedBackground) }
+
     var filteredItems: [FoodItem] {
+        let locationItems: [FoodItem]
         switch selectedFilter {
-        case .all: return items
-        case .fridge: return items.filter { $0.location == .fridge }
-        case .freezer: return items.filter { $0.location == .freezer }
-        case .pantry: return items.filter { $0.location == .pantry }
+        case .all: locationItems = items
+        case .fridge: locationItems = items.filter { $0.location == .fridge }
+        case .freezer: locationItems = items.filter { $0.location == .freezer }
+        case .pantry: locationItems = items.filter { $0.location == .pantry }
         }
+        if searchText.isEmpty { return locationItems }
+        else { return locationItems.filter { $0.name.localizedCaseInsensitiveContains(searchText) } }
     }
 
     var body: some View {
-        // 1. Raggruppiamo gli elementi per nome
         let groupedItems = Dictionary(grouping: filteredItems, by: { $0.name })
-        
-        // 2. MODIFICA: Ordiniamo i NOMI dei prodotti in base alla scadenza del loro primo lotto
-        // Se un prodotto non ha scadenza (nil), lo consideriamo nel futuro lontano (.distantFuture)
         let sortedProductNames = groupedItems.keys.sorted { name1, name2 in
             let date1 = groupedItems[name1]?.first?.expiryDate ?? Date.distantFuture
             let date2 = groupedItems[name2]?.first?.expiryDate ?? Date.distantFuture
             return date1 < date2
         }
 
-        NavigationStack {
-            ZStack {
+        GeometryReader { geometry in
+            let screenHeight = geometry.size.height
+            let safeAreaTop = geometry.safeAreaInsets.top
+            
+            // Margine superiore quando espanso: Lasciamo più spazio (110pt) così Buddy respira
+            let expandedTopMargin: CGFloat = safeAreaTop + 110
+            
+            let currentSheetHeight = (isExpanded ? (screenHeight - expandedTopMargin) : restingHeight) - dragOffset
+            let clampedHeight = max(restingHeight, min(screenHeight - expandedTopMargin, currentSheetHeight))
+            
+            // Progress: 0.0 (Riposo) -> 1.0 (Espanso)
+            let progress = (clampedHeight - restingHeight) / ((screenHeight - expandedTopMargin) - restingHeight)
+            
+            // --- CALCOLO POSIZIONE BUDDY (AGGIORNATO) ---
+            // StartY: A riposo sta più in basso (100) per lasciare spazio al fumetto
+            let startY: CGFloat = 100
+            
+            // EndOffset: Quando si apre, sale di MOLTO (-240) per seguire la lista
+            let endOffset: CGFloat = -120
+            
+            let buddyOffsetY = startY + (endOffset * progress)
+            // Scale: Non lo rimpiccioliamo troppo (0.90 minimo) sennò sembra lontano
+            let buddyScale = 1.0 - (progress * 0.10)
+            
+            let buddyMood: BuddyView.BuddyMood? = progress > 0.1 ? .observing : nil
+
+            ZStack(alignment: .top) {
+                // 1. SFONDO E BUDDY
                 backgroundColor.ignoresSafeArea()
                 
-                VStack(spacing: 0) {
+                VStack {
+                    Spacer().frame(height: safeAreaTop)
                     
-                    if items.isEmpty {
-                        Spacer()
-                        BuddyView(isDoorOpen: $isBuddyOpen) { apriFrigo() }
-                            .matchedGeometryEffect(id: "BuddyFridge", in: animationNamespace)
-                            .frame(maxHeight: .infinity)
-                        Spacer()
-                    } else {
-                        BuddyView(isDoorOpen: $isBuddyOpen) { apriFrigo() }
+                    BuddyView(
+                        isDoorOpen: $isBuddyOpen,
+                        forcedMood: buddyMood,
+                        onTap: { apriFrigo() }
+                    )
+                    .scaleEffect(buddyScale)
+                    .offset(y: buddyOffsetY)
+                    
+                    Spacer()
+                }
+                .frame(width: geometry.size.width)
+                .ignoresSafeArea(.keyboard)
+                
+                // 2. IL FOGLIO (Bottom Sheet)
+                if !items.isEmpty {
+                    VStack(spacing: 0) {
+                        // MANIGLIA
+                        Capsule()
+                            .fill(Color.gray.opacity(0.3))
+                            .frame(width: 40, height: 5)
+                            .padding(.top, 10)
                             .padding(.bottom, 10)
-                            .background(backgroundColor)
-                            .matchedGeometryEffect(id: "BuddyFridge", in: animationNamespace)
                         
+                        // FILTRI
                         Picker("Filtra", selection: $selectedFilter) {
                             ForEach(FilterScope.allCases, id: \.self) { scope in
                                 Text(scope.rawValue).tag(scope)
@@ -109,15 +156,19 @@ struct FridgeView: View {
                         .pickerStyle(.segmented)
                         .padding(.horizontal)
                         .padding(.bottom, 10)
-                        .background(backgroundColor)
                         
+                        // CONTENUTO LISTA
                         if filteredItems.isEmpty {
                             Spacer()
-                            ContentUnavailableView(
-                                "Nessun prodotto",
-                                systemImage: "tray",
-                                description: Text("Non c'è nulla in \(selectedFilter.rawValue.lowercased()).")
-                            )
+                            if !searchText.isEmpty {
+                                ContentUnavailableView.search(text: searchText)
+                            } else {
+                                ContentUnavailableView(
+                                    "Nessun prodotto",
+                                    systemImage: "tray",
+                                    description: Text("Non c'è nulla in \(selectedFilter.rawValue.lowercased()).")
+                                )
+                            }
                             Spacer()
                         } else {
                             ScrollView {
@@ -133,58 +184,114 @@ struct FridgeView: View {
                                                 onEdit: { batch in itemToEdit = batch },
                                                 onOpenRequest: { batch, days in requestOpen(item: batch, days: days) }
                                             )
-                                            .transition(.scale.combined(with: .opacity))
                                         }
                                     }
                                 }
-                                .padding()
-                                .padding(.bottom, 80)
+                                .padding(.horizontal)
+                                .padding(.top, 5)
+                                // Spazio extra in fondo per non coprire l'ultimo elemento con la barra glass
+                                .padding(.bottom, 90)
                             }
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
                         }
+                        
+                        // BARRA DI RICERCA "LIQUID GLASS"
+                        VStack(spacing: 0) {
+                            Divider().opacity(0.3) // Divisore sottile
+                            
+                            HStack(spacing: 12) {
+                                // Campo di ricerca
+                                HStack {
+                                    Image(systemName: "magnifyingglass")
+                                        .foregroundStyle(.secondary)
+                                    
+                                    TextField("Cerca...", text: $searchText)
+                                        .focused($isSearchFocused)
+                                        .submitLabel(.done)
+                                    
+                                    if !searchText.isEmpty {
+                                        Button(action: { searchText = ""; isSearchFocused = false }) {
+                                            Image(systemName: "xmark.circle.fill")
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                }
+                                .padding(10)
+                                // Sfondo del campo testo: Vetro più chiaro
+                                .background(.ultraThinMaterial)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                                
+                                // Bottone Impostazioni
+                                Button(action: { showSettings = true }) {
+                                    Image(systemName: "gearshape.fill")
+                                        .font(.title2)
+                                        .foregroundStyle(.gray)
+                                        .frame(width: 44, height: 44)
+                                        // Sfondo del bottone: Vetro
+                                        .background(.ultraThinMaterial)
+                                        .clipShape(Circle())
+                                }
+                            }
+                            .padding(.horizontal)
+                            .padding(.top, 10)
+                            // Padding bottom per sollevare dal bordo safe area
+                            .padding(.bottom, 10)
+                        }
+                        // SFONDO INTERO DELLA BARRA: Vetro Smerigliato (Liquid Glass)
+                        .background(.ultraThinMaterial)
+                        // LOGICA COMPARSA: Opacità basata sul progresso
+                        .opacity(progress > 0.1 ? Double((progress - 0.1) * 1.5) : 0)
+                        .allowsHitTesting(progress > 0.4)
                     }
+                    .background(Color(uiColor: .systemBackground))
+                    .clipShape(RoundedCorner(radius: 30, corners: [.topLeft, .topRight]))
+                    .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: -5)
+                    .frame(height: clampedHeight)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                    // GESTURE
+                    .gesture(
+                        DragGesture()
+                            .onChanged { value in
+                                let translation = value.translation.height
+                                dragOffset = -translation
+                            }
+                            .onEnded { value in
+                                let threshold: CGFloat = 100
+                                let predictedEnd = value.translation.height + (value.velocity.height / 5)
+                                
+                                withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                                    if isExpanded {
+                                        if predictedEnd > threshold { isExpanded = false; isSearchFocused = false }
+                                    } else {
+                                        if predictedEnd < -threshold { isExpanded = true }
+                                    }
+                                    dragOffset = 0
+                                }
+                            }
+                    )
                 }
             }
-            .navigationTitle(items.isEmpty ? "" : "Inventario")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(backgroundColor, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: { showSettings = true }) { Image(systemName: "gearshape").foregroundStyle(.gray) }
-                }
-            }
-            .sheet(isPresented: $showAddItemSheet, onDismiss: { withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) { isBuddyOpen = false } }) {
-                AddItemView().presentationDetents([.fraction(0.65)]).presentationDragIndicator(.visible)
-            }
-            .sheet(isPresented: $showSettings) { SettingsView() }
-            .sheet(item: $itemToEdit) { item in EditItemView(item: item) }
-            // --- DIALOGO SCELTA QUANTITA APERTURA ---
-            .confirmationDialog("Quanti ne stai aprendo?", isPresented: $showOpenQuantityDialog, titleVisibility: .visible) {
-                if let item = itemPendingOpen {
-                    Button("Apri solo 1 (es. 1 Bottiglia)") {
-                        confirmOpen(item: item, days: pendingOpenDuration, openAll: false)
-                    }
-                    Button("Apri Tutti e \(item.quantity) (es. Pacco intero)") {
-                        confirmOpen(item: item, days: pendingOpenDuration, openAll: true)
-                    }
-                    Button("Annulla", role: .cancel) {
-                        itemPendingOpen = nil
-                    }
-                }
-            } message: {
-                if let item = itemPendingOpen {
-                    Text("Hai \(item.quantity) pezzi di '\(item.name)'.")
-                }
-            }
-            // ----------------------------------------
-            .alert("Prodotto Finito!", isPresented: $showShopAlert) {
-                Button("Sì, metti in lista") { if let name = itemToAddToShop { addToShoppingList(name) } }
-                Button("No, grazie", role: .cancel) { }
-            } message: { Text("Hai finito \(itemToAddToShop ?? "il prodotto"). Vuoi aggiungerlo alla lista della spesa?") }
         }
-        .animation(.spring(response: 0.6, dampingFraction: 0.8), value: items.isEmpty)
+        .sheet(isPresented: $showAddItemSheet, onDismiss: { withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) { isBuddyOpen = false } }) {
+            AddItemView().presentationDetents([.fraction(0.65)]).presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showSettings) { SettingsView() }
+        .sheet(item: $itemToEdit) { item in EditItemView(item: item) }
+        .confirmationDialog("Quanti ne stai aprendo?", isPresented: $showOpenQuantityDialog, titleVisibility: .visible) {
+            if let item = itemPendingOpen {
+                Button("Apri solo 1") { confirmOpen(item: item, days: pendingOpenDuration, openAll: false) }
+                Button("Apri Tutti e \(item.quantity)") { confirmOpen(item: item, days: pendingOpenDuration, openAll: true) }
+                Button("Annulla", role: .cancel) { itemPendingOpen = nil }
+            }
+        } message: {
+            if let item = itemPendingOpen { Text("Hai \(item.quantity) pezzi di '\(item.name)'.") }
+        }
+        .alert("Prodotto Finito!", isPresented: $showShopAlert) {
+            Button("Sì, metti in lista") { if let name = itemToAddToShop { addToShoppingList(name) } }
+            Button("No, grazie", role: .cancel) { }
+        } message: { Text("Hai finito \(itemToAddToShop ?? "il prodotto"). Vuoi aggiungerlo alla lista della spesa?") }
     }
 
+    // HELPER FUNCTIONS
     private func apriFrigo() { withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) { isBuddyOpen = true }; showAddItemSheet = true }
     private func consumeItem(_ item: FoodItem, allItems: [FoodItem]) { withAnimation { if item.quantity > 1 { item.quantity -= 1 } else { checkIfLastAndSuggest(item, allItems: allItems); NotificationManager.shared.cancelNotification(for: item); modelContext.delete(item) } } }
     private func consumePartial(_ item: FoodItem, remainingFraction: Double) { withAnimation { let newValue = item.measureValue * remainingFraction; item.measureValue = round(newValue * 100) / 100 } }
@@ -192,60 +299,26 @@ struct FridgeView: View {
     private func checkIfLastAndSuggest(_ item: FoodItem, allItems: [FoodItem]) { let otherBatchesCount = allItems.filter { $0.name == item.name && $0.persistentModelID != item.persistentModelID }.count; if otherBatchesCount == 0 { itemToAddToShop = item.name; showShopAlert = true } }
     private func addToShoppingList(_ name: String) { modelContext.insert(ShoppingItem(name: name)) }
     
-    // --- GESTIONE RICHIESTA APERTURA ---
     private func requestOpen(item: FoodItem, days: Int) {
-        if item.quantity == 1 {
-            // Se ne hai solo 1, non c'è ambiguità: aprilo e basta
-            confirmOpen(item: item, days: days, openAll: true)
-        } else {
-            // Se ne hai 6 (es. Spinacine o Latte), chiediamo all'utente
-            itemPendingOpen = item
-            pendingOpenDuration = days
-            showOpenQuantityDialog = true
-        }
+        if item.quantity == 1 { confirmOpen(item: item, days: days, openAll: true) }
+        else { itemPendingOpen = item; pendingOpenDuration = days; showOpenQuantityDialog = true }
     }
     
-    // --- ESECUZIONE APERTURA (SPLIT O TOTALE) ---
     private func confirmOpen(item: FoodItem, days: Int, openAll: Bool) {
         withAnimation {
             let quantityToMove = openAll ? item.quantity : 1
-            
-            // 1. Gestiamo il prodotto originale chiuso
-            if item.quantity > quantityToMove {
-                // Caso Latte: Riduciamo quelli chiusi
-                item.quantity -= quantityToMove
-            } else {
-                // Caso Spinacine (o ultima bottiglia): Rimuoviamo il "chiuso"
-                NotificationManager.shared.cancelNotification(for: item)
-                modelContext.delete(item)
-            }
-            
-            // 2. Creiamo il prodotto "Aperto"
+            if item.quantity > quantityToMove { item.quantity -= quantityToMove }
+            else { NotificationManager.shared.cancelNotification(for: item); modelContext.delete(item) }
             let newExpiry = Calendar.current.date(byAdding: .day, value: days, to: Date()) ?? Date()
-            
-            let openedItem = FoodItem(
-                name: item.name,
-                emoji: item.emoji,
-                quantity: quantityToMove, // Spostiamo la quantità scelta (1 o 6)
-                expiryDate: newExpiry,
-                location: item.location,
-                isRecurring: item.isRecurring,
-                measureValue: item.measureValue,
-                measureUnit: item.measureUnit,
-                isOpened: true // BANDIERINA APERTO
-            )
-            
+            let openedItem = FoodItem(name: item.name, emoji: item.emoji, quantity: quantityToMove, expiryDate: newExpiry, location: item.location, isRecurring: item.isRecurring, measureValue: item.measureValue, measureUnit: item.measureUnit, isOpened: true)
             modelContext.insert(openedItem)
             NotificationManager.shared.scheduleNotification(for: openedItem)
         }
-        
-        // Reset stati
-        itemPendingOpen = nil
-        pendingOpenDuration = 0
+        itemPendingOpen = nil; pendingOpenDuration = 0
     }
 }
 
-// --- CARD DEL PRODOTTO ---
+// CARD DEL PRODOTTO
 struct ProductCard: View {
     let productName: String
     let batches: [FoodItem]
@@ -253,7 +326,6 @@ struct ProductCard: View {
     let onConsumePartial: (FoodItem, Double) -> Void
     let onDelete: (FoodItem) -> Void
     let onEdit: (FoodItem) -> Void
-    // Nuova callback
     let onOpenRequest: (FoodItem, Int) -> Void
     
     @State private var isExpanded: Bool = false
@@ -261,7 +333,6 @@ struct ProductCard: View {
     
     var firstItem: FoodItem? { batches.first }
     
-    // Logica colori aggiornata per gestire le date opzionali
     var statusColor: Color {
         if batches.contains(where: { $0.isOpened }) { return .orange }
         if let first = firstItem, first.location == .freezer { return .cyan }
@@ -269,7 +340,6 @@ struct ProductCard: View {
         
         let soonDate = Calendar.current.date(byAdding: .day, value: 3, to: Date())!
         
-        // Controlliamo se c'è almeno un batch che scade presto (e che ha una data)
         if batches.contains(where: {
             guard let date = $0.expiryDate else { return false }
             return date <= soonDate
@@ -303,7 +373,6 @@ struct ProductCard: View {
                                         Text("APERTO").font(.caption).fontWeight(.bold).foregroundStyle(.orange)
                                     }
                                 } else {
-                                    // MODIFICA QUI: GESTIONE DATA NIL
                                     if let date = first.expiryDate {
                                         Text("Scade: \(date.formatted(date: .abbreviated, time: .omitted))")
                                             .font(.caption).foregroundStyle(first.isExpired ? .red : .secondary)
@@ -345,7 +414,6 @@ struct ProductCard: View {
                                                 .font(.subheadline).foregroundStyle(.primary)
                                         }
                                     } else {
-                                        // MODIFICA QUI: GESTIONE DATA NIL NELLA LISTA ESPANSA
                                         if let date = batch.expiryDate {
                                             Text("Scade: \(date.formatted(date: .abbreviated, time: .omitted))")
                                                 .font(.subheadline).foregroundStyle(batch.isExpired ? .red : .primary)
@@ -361,7 +429,6 @@ struct ProductCard: View {
                                 }
                                 Spacer()
                                 
-                                // BOTTONE APRI (Solo se non aperto e non freezer)
                                 if !batch.isOpened && batch.location != .freezer {
                                     Menu {
                                         Text("Consumare entro:")
@@ -415,7 +482,7 @@ struct ProductCard: View {
     }
 }
 
-// RIGA SWIPEABLE (Standard)
+// RIGA SWIPEABLE
 struct SwipeableBatchRow<Content: View>: View {
     var onDelete: () -> Void; var onEdit: (() -> Void)? = nil; @ViewBuilder var content: Content; @State private var offset: CGFloat = 0; @State private var isSwiped: Bool = false; let buttonWidth: CGFloat = 70
     var body: some View {
@@ -423,5 +490,15 @@ struct SwipeableBatchRow<Content: View>: View {
             HStack(spacing: 0) { Spacer(); if let onEdit = onEdit { Button(action: { withAnimation { offset = 0; isSwiped = false }; onEdit() }) { ZStack { Color.orange; Image(systemName: "pencil").foregroundStyle(.white).font(.title2) } }.frame(width: buttonWidth) }; Button(action: { withAnimation { offset = 0; isSwiped = false }; onDelete() }) { ZStack { Color.red; Image(systemName: "trash.fill").foregroundStyle(.white).font(.title2) } }.frame(width: buttonWidth) }
             content.offset(x: offset).gesture(DragGesture().onChanged { value in if value.translation.width < 0 { offset = value.translation.width } }.onEnded { value in withAnimation(.spring()) { let threshold: CGFloat = (onEdit != nil) ? -140 : -70; let finalOffset: CGFloat = (onEdit != nil) ? -(buttonWidth * 2) : -buttonWidth; if value.translation.width < threshold { offset = finalOffset; isSwiped = true } else { offset = 0; isSwiped = false } } })
         }.onTapGesture { if isSwiped { withAnimation { offset = 0; isSwiped = false } } }
+    }
+}
+
+struct RoundedCorner: Shape {
+    var radius: CGFloat = .infinity
+    var corners: UIRectCorner = .allCorners
+
+    func path(in rect: CGRect) -> Path {
+        let path = UIBezierPath(roundedRect: rect, byRoundingCorners: corners, cornerRadii: CGSize(width: radius, height: radius))
+        return Path(path.cgPath)
     }
 }

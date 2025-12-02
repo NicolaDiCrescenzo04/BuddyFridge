@@ -6,34 +6,28 @@ struct BuddyView: View {
     @Environment(\.colorScheme) var colorScheme
     
     @Binding var isDoorOpen: Bool
+    
+    // Parametro opzionale: se settato, sovrascrive l'umore automatico
+    var forcedMood: BuddyMood? = nil
+    
     var onTap: () -> Void
     
-    enum BuddyMood { case happy, worried, sad, neutral }
+    enum BuddyMood { case happy, worried, sad, neutral, observing }
     
     var currentMood: BuddyMood {
+        if let forced = forcedMood { return forced }
+        
         if items.isEmpty { return .neutral }
         
-        // --- LOGICA SMART: Ignoriamo il congelatore per l'umore ---
-        // I prodotti in congelatore sono "bloccati", non rendono Buddy triste.
         let activeItems = items.filter { $0.location != .freezer }
-        
-        // Se tutto è nel congelatore, Buddy è felice (o neutro se vuoto attivo)
         if activeItems.isEmpty { return .happy }
         
-        // 1. Controlliamo se qualcosa è GIÀ scaduto
-        // Nota: .isExpired gestisce già il caso nil (restituisce false), quindi qui siamo salvi
         let hasExpiredItems = activeItems.contains { $0.isExpired }
         if hasExpiredItems { return .sad }
         
-        // 2. Controlliamo se qualcosa sta PER scadere (entro 2 giorni)
         let soonDate = Calendar.current.date(byAdding: .day, value: 2, to: Date())!
-        
-        // MODIFICA QUI: Dobbiamo scompattare la data opzionale
         let isWorried = activeItems.contains { item in
-            // Se non ha scadenza, non ci preoccupa
             guard let expiry = item.expiryDate else { return false }
-            
-            // Se ha scadenza, controlliamo se è vicina e se non è già scaduto
             return expiry <= soonDate && !item.isExpired
         }
         
@@ -43,12 +37,16 @@ struct BuddyView: View {
     }
     
     var message: String {
+        // Se stiamo osservando, niente testo per pulizia
+        if forcedMood == .observing { return "" }
+        
         if items.isEmpty { return "Il frigo è vuoto. Facciamo la spesa?" }
         switch currentMood {
-        case .happy: return "Tutto fresco! 😄" // O "Brrr... che freddo!" se c'è roba in freezer? :D
+        case .happy: return "Tutto fresco! 😄"
         case .worried: return "Occhio alle scadenze... 😰"
         case .sad: return "Qualcosa è andato a male! 🤢"
         case .neutral: return ""
+        case .observing: return ""
         }
     }
     
@@ -57,19 +55,9 @@ struct BuddyView: View {
     var body: some View {
         VStack(spacing: 15) {
             
-            // BUDDY INTERATTIVO
-            Button(action: {
-                onTap()
-            }) {
-                BuddyGraphic(mood: currentMood, isOpen: isDoorOpen)
-                    .scaleEffect(items.isEmpty ? 1.2 : 0.9)
-                    .animation(.spring(response: 0.6, dampingFraction: 0.6), value: currentMood)
-                    .animation(.spring(response: 0.6, dampingFraction: 0.7), value: isDoorOpen)
-            }
-            .buttonStyle(.plain)
-            
-            // FUMETTO
-            if !items.isEmpty || currentMood == .neutral {
+            // 1. FUMETTO (Ora è SOPRA il frigo)
+            // Mostriamo il messaggio solo se c'è testo e NON siamo in modalità osservazione forzata
+            if !message.isEmpty && forcedMood != .observing {
                 Text(message)
                     .font(.system(.subheadline, design: .rounded))
                     .multilineTextAlignment(.center)
@@ -78,15 +66,28 @@ struct BuddyView: View {
                     .background(bubbleColor)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .shadow(color: .black.opacity(0.05), radius: 5, x: 0, y: 2)
-                    .overlay(alignment: .top) {
-                        Image(systemName: "arrowtriangle.up.fill")
+                    // FRECCETTA DEL FUMETTO (Punta in BASSO verso la testa)
+                    .overlay(alignment: .bottom) {
+                        Image(systemName: "arrowtriangle.down.fill")
                             .foregroundStyle(bubbleColor)
-                            .offset(y: -8)
+                            .offset(y: 8) // Spostata in basso
                     }
                     .transition(.opacity.combined(with: .scale))
                     .padding(.horizontal, 20)
+                    // Nascondi se la porta è aperta (perché ruota sopra)
                     .opacity(isDoorOpen ? 0 : 1)
             }
+            
+            // 2. BUDDY INTERATTIVO (Sotto il fumetto)
+            Button(action: {
+                onTap()
+            }) {
+                BuddyGraphic(mood: currentMood, isOpen: isDoorOpen)
+                    .scaleEffect(items.isEmpty && forcedMood != .observing ? 1.2 : 1.0)
+                    .animation(.spring(response: 0.6, dampingFraction: 0.6), value: currentMood)
+                    .animation(.spring(response: 0.6, dampingFraction: 0.7), value: isDoorOpen)
+            }
+            .buttonStyle(.plain)
         }
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity)
