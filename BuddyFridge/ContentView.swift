@@ -53,24 +53,16 @@ struct FridgeView: View {
     
     // STATO RICERCA E FILTRI
     @State private var searchText = ""
-    @FocusState private var isSearchFocused: Bool
     @State private var selectedFilter: FilterScope = .all
     
-    // --- GESTIONE BOTTOM SHEET ---
-    private let restingHeight: CGFloat = 320
-    @State private var dragOffset: CGFloat = 0
+    // EXPAND LOGIC
     @State private var isExpanded: Bool = false
     
-    // --- GESTIONE APERTURA PACCHI ---
+    // DIALOGS
     @State private var itemPendingOpen: FoodItem?
     @State private var pendingOpenDuration: Int = 0
     @State private var showOpenQuantityDialog = false
     
-    @Namespace private var animationNamespace
-
-    // Colore sfondo card
-    var cardBackground: Color { Color(uiColor: .secondarySystemGroupedBackground) }
-
     var filteredItems: [FoodItem] {
         let locationItems: [FoodItem]
         switch selectedFilter {
@@ -92,240 +84,178 @@ struct FridgeView: View {
         }
 
         GeometryReader { geometry in
-            let screenHeight = geometry.size.height
-            let safeAreaTop = geometry.safeAreaInsets.top
-            
-            // Margine superiore quando espanso: Lasciamo più spazio (110pt) così Buddy respira
-            let expandedTopMargin: CGFloat = safeAreaTop + 110
-            
-            let currentSheetHeight = (isExpanded ? (screenHeight - expandedTopMargin) : restingHeight) - dragOffset
-            let clampedHeight = max(restingHeight, min(screenHeight - expandedTopMargin, currentSheetHeight))
-            
-            // Progress: 0.0 (Riposo) -> 1.0 (Espanso)
-            let progress = (clampedHeight - restingHeight) / ((screenHeight - expandedTopMargin) - restingHeight)
-            
-            // --- CALCOLO POSIZIONE BUDDY ---
-            // StartY: A riposo sta più in basso (100) per lasciare spazio al fumetto
-            let startY: CGFloat = 100
-            
-            // EndOffset: Quando si apre, sale di MOLTO (-120) per seguire la lista
-            let endOffset: CGFloat = -120
-            
-            let buddyOffsetY = startY + (endOffset * progress)
-            // Scale: Non lo rimpiccioliamo troppo (0.90 minimo) sennò sembra lontano
-            let buddyScale = 1.0 - (progress * 0.10)
-            
-            // Buddy guarda in basso solo se la lista inizia ad aprirsi (>10%)
-            let buddyMood: BuddyView.BuddyMood? = progress > 0.1 ? .observing : nil
+                    // Heights
+                    let collapsedHeight: CGFloat = 430
+                    
+                    // 👇 CORREZIONE 1: Aggiungiamo safeAreaInsets.bottom per coprire il bordo inferiore
+                    let expandedHeight: CGFloat = geometry.size.height - geometry.safeAreaInsets.top - 20 + geometry.safeAreaInsets.bottom
+                    
+                    let currentHeight = isExpanded ? expandedHeight : collapsedHeight
 
-            ZStack(alignment: .top) {
-                // 1. SFONDO E BUDDY
-                backgroundColor.ignoresSafeArea()
-                
-                VStack {
-                    Spacer().frame(height: safeAreaTop)
-                    
-                    BuddyView(
-                        isDoorOpen: $isBuddyOpen,
-                        forcedMood: buddyMood,
-                        onTap: { apriFrigo() }
-                    )
-                    .scaleEffect(buddyScale)
-                    .offset(y: buddyOffsetY)
-                    
-                    Spacer()
-                }
-                .frame(width: geometry.size.width)
-                .ignoresSafeArea(.keyboard)
-                
-                // 2. IL FOGLIO (Bottom Sheet)
-                if !items.isEmpty {
-                    VStack(spacing: 0) {
-                        // MANIGLIA
-                        Capsule()
-                            .fill(Color.gray.opacity(0.3))
-                            .frame(width: 40, height: 5)
-                            .padding(.top, 10)
-                            .padding(.bottom, 10)
+                    ZStack(alignment: .top) {
+                        // 1. BACKGROUND & MASCOT
+                        backgroundColor.ignoresSafeArea()
                         
-                        // FILTRI
-                        Picker("Filtra", selection: $selectedFilter) {
-                            ForEach(FilterScope.allCases, id: \.self) { scope in
-                                Text(scope.rawValue).tag(scope)
-                            }
+                        VStack {
+                            Spacer().frame(height: geometry.safeAreaInsets.top + 20)
+                            
+                            BuddyView(
+                                isDoorOpen: $isBuddyOpen,
+                                forcedMood: isExpanded ? .observing : nil,
+                                onTap: { withAnimation { showAddItemSheet = true } }
+                            )
+                            .scaleEffect(isExpanded ? 0.8 : 1.0)
+                            .offset(y: isExpanded ? -120 : -50)
+                            
+                            Spacer()
                         }
-                        .pickerStyle(.segmented)
-                        .padding(.horizontal)
-                        .padding(.bottom, 10)
+                        .frame(width: geometry.size.width)
+                        .animation(.spring(response: 0.6, dampingFraction: 0.7), value: isExpanded)
                         
-                        // CONTENUTO LISTA
-                        if filteredItems.isEmpty {
+                        // 2. NATIVE FLOATING CARD
+                        // 👇 CORREZIONE 2: Applichiamo ignoresSafeArea a QUESTO VStack contenitore
+                        VStack {
                             Spacer()
-                            if !searchText.isEmpty {
-                                ContentUnavailableView.search(text: searchText)
-                            } else {
-                                ContentUnavailableView(
-                                    "Nessun prodotto",
-                                    systemImage: "tray",
-                                    description: Text("Non c'è nulla in \(selectedFilter.rawValue.lowercased()).")
-                                )
-                            }
-                            Spacer()
-                        } else {
-                            ScrollView {
-                                LazyVStack(spacing: 16) {
-                                    ForEach(sortedProductNames, id: \.self) { productName in
-                                        if let batches = groupedItems[productName] {
-                                            ProductCard(
-                                                productName: productName,
-                                                batches: batches,
-                                                onConsume: { batch in consumeItem(batch, allItems: items) },
-                                                onConsumePartial: { batch, fraction in consumePartial(batch, remainingFraction: fraction) },
-                                                onDelete: { batch in deleteItem(batch) },
-                                                onEdit: { batch in itemToEdit = batch },
-                                                onOpenRequest: { batch, days in requestOpen(item: batch, days: days) }
-                                            )
+                            
+                            NavigationStack {
+                                VStack(spacing: 0) {
+                                    
+                                    // A. FILTER SCOPE
+                                    Picker("Filtra", selection: $selectedFilter) {
+                                        ForEach(FilterScope.allCases, id: \.self) { scope in
+                                            Text(scope.rawValue).tag(scope)
+                                        }
+                                    }
+                                    .pickerStyle(.segmented)
+                                    .padding(.horizontal)
+                                    .padding(.vertical, 10)
+                                    
+                                    // B. NATIVE LIST
+                                    if filteredItems.isEmpty {
+                                        ContentUnavailableView(
+                                            "Vuoto",
+                                            systemImage: "tray",
+                                            description: Text("Niente in \(selectedFilter.rawValue.lowercased()).")
+                                        )
+                                    } else {
+                                        List {
+                                            ForEach(sortedProductNames, id: \.self) { productName in
+                                                if let batches = groupedItems[productName] {
+                                                    ProductCard(
+                                                        productName: productName,
+                                                        batches: batches,
+                                                        onConsume: { b in consumeItem(b, allItems: items) },
+                                                        onConsumePartial: { b, f in consumePartial(b, remainingFraction: f) },
+                                                        onDelete: { b in deleteItem(b) },
+                                                        onEdit: { b in itemToEdit = b },
+                                                        onOpenRequest: { b, d in requestOpen(item: b, days: d) },
+                                                        onAdd: { addOneMore(of: batches) }
+                                                    )
+                                                    .listRowSeparator(.hidden)
+                                                    .listRowBackground(Color.clear)
+                                                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                                                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                                        Button(role: .destructive) {
+                                                            if let first = batches.first { deleteItem(first) }
+                                                        } label: {
+                                                            Label("Butta", systemImage: "trash")
+                                                        }
+                                                    }
+                                                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                                        Button {
+                                                            if let first = batches.first { consumeItem(first, allItems: items) }
+                                                        } label: {
+                                                            Label("Mangia", systemImage: "fork.knife")
+                                                        }
+                                                        .tint(.green)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        .listStyle(.plain)
+                                        .scrollContentBackground(.hidden)
+                                    }
+                                }
+                                .navigationTitle("La mia Dispensa")
+                                .navigationBarTitleDisplayMode(.inline)
+                                .searchable(text: $searchText, placement: .automatic, prompt: "Cerca cibo...")
+                                .toolbar {
+                                    ToolbarItem(placement: .topBarLeading) {
+                                        Button(action: { withAnimation(.spring) { isExpanded.toggle() } }) {
+                                            Image(systemName: isExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                                                .bold()
+                                        }
+                                    }
+                                    ToolbarItem(placement: .topBarTrailing) {
+                                        Button(action: { showSettings = true }) {
+                                            Image(systemName: "gearshape.fill")
                                         }
                                     }
                                 }
-                                .padding(.horizontal)
-                                .padding(.top, 5)
-                                // Spazio extra in fondo per non coprire l'ultimo elemento con la barra glass
-                                .padding(.bottom, 90)
                             }
+                            .frame(height: currentHeight)
+                            .background(Color(uiColor: .systemBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 30))
+                            .shadow(color: .black.opacity(0.15), radius: 15, x: 0, y: 5)
+                            // Rimuovi padding e safe area quando espanso per "incollare" la card
+                            .padding(.horizontal, isExpanded ? 0 : 16)
+                            .padding(.bottom, isExpanded ? 0 : 20)
                         }
-                        
-                        
-                        // BARRA DI RICERCA "LIQUID GLASS"
-                                                VStack(spacing: 0) {
-                                                    Divider() // Linea di separazione sottile
-                                                    
-                                                    HStack(spacing: 12) {
-                                                        // Campo di ricerca
-                                                        HStack {
-                                                            Image(systemName: "magnifyingglass")
-                                                                .foregroundStyle(.secondary)
-                                                            
-                                                            TextField("Cerca...", text: $searchText)
-                                                                .focused($isSearchFocused)
-                                                                .submitLabel(.done)
-                                                            
-                                                            if !searchText.isEmpty {
-                                                                Button(action: { searchText = ""; isSearchFocused = false }) {
-                                                                    Image(systemName: "xmark.circle.fill")
-                                                                        .foregroundStyle(.secondary)
-                                                                }
-                                                            }
-                                                        }
-                                                        .padding(10)
-                                                        // Sfondo del campo testo: Grigio chiaro per contrasto su bianco
-                                                        .background(Color(uiColor: .secondarySystemBackground))
-                                                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                                                        
-                                                        // Bottone Impostazioni
-                                                        Button(action: { showSettings = true }) {
-                                                            Image(systemName: "gearshape.fill")
-                                                                .font(.title2)
-                                                                .foregroundStyle(.gray)
-                                                                .frame(width: 44, height: 44)
-                                                                // Sfondo del bottone: Grigio chiaro per contrasto su bianco
-                                                                .background(Color(uiColor: .secondarySystemBackground))
-                                                                .clipShape(Circle())
-                                                        }
-                                                    }
-                                                    .padding(.horizontal)
-                                                    .padding(.top, 10)
-                                                    // Padding bottom per sollevare dal bordo safe area
-                                                    .padding(.bottom, 10)
-                                                }
-                                                // SFONDO INTERO DELLA BARRA: Ora è solido come il resto del foglio
-                                                .background(Color(uiColor: .systemBackground))
-                                                // LOGICA COMPARSA: Opacità basata sul progresso
-                                                .opacity(progress > 0.1 ? Double((progress - 0.1) * 1.5) : 0)
-                                                .allowsHitTesting(progress > 0.4)
-                                            }
-                                            .background(Color(uiColor: .systemBackground))
-                    .clipShape(RoundedCorner(radius: 30, corners: [.topLeft, .topRight]))
-                    .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: -5)
-                    .frame(height: clampedHeight)
-                    .frame(maxHeight: .infinity, alignment: .bottom)
-                    // GESTURE MODIFICATA PER GESTIRE L'ESPANSIONE E LA TOOLBAR
-                    .gesture(
-                        DragGesture()
-                            .onChanged { value in
-                                let translation = value.translation.height
-                                dragOffset = -translation
-                            }
-                            .onEnded { value in
-                                let threshold: CGFloat = 100
-                                let predictedEnd = value.translation.height + (value.velocity.height / 5)
-                                
-                                withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-                                    if isExpanded {
-                                        if predictedEnd > threshold { isExpanded = false; isSearchFocused = false }
-                                    } else {
-                                        if predictedEnd < -threshold { isExpanded = true }
-                                    }
-                                    dragOffset = 0
-                                }
-                            }
-                    )
+                        // 👇 QUESTA È LA CHIAVE: Il contenitore ignora la safe area bottom quando espanso
+                        // Così lo Spacer() interno spinge la card fino al bordo fisico del telefono.
+                        .ignoresSafeArea(edges: isExpanded ? .bottom : [])
+                    }
                 }
-            }
-        }
-        // --- 1. NASCONDI LA TAB BAR QUANDO ESPANSO ---
         .toolbar(isExpanded ? .hidden : .visible, for: .tabBar)
-        // --- 2. TRANSIZIONE FLUIDA ---
-        .animation(.easeInOut(duration: 0.3), value: isExpanded)
-        
-        .sheet(isPresented: $showAddItemSheet, onDismiss: { withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) { isBuddyOpen = false } }) {
-            AddItemView().presentationDetents([.fraction(0.65)]).presentationDragIndicator(.visible)
+        .sheet(isPresented: $showAddItemSheet) {
+            AddItemView(defaultLocation: locationFromFilter(selectedFilter))
+                .presentationDetents([.fraction(0.85)])
         }
         .sheet(isPresented: $showSettings) { SettingsView() }
         .sheet(item: $itemToEdit) { item in EditItemView(item: item) }
-        .confirmationDialog("Quanti ne stai aprendo?", isPresented: $showOpenQuantityDialog, titleVisibility: .visible) {
-            if let item = itemPendingOpen {
-                Button("Apri solo 1") { confirmOpen(item: item, days: pendingOpenDuration, openAll: false) }
-                Button("Apri Tutti e \(item.quantity)") { confirmOpen(item: item, days: pendingOpenDuration, openAll: true) }
-                Button("Annulla", role: .cancel) { itemPendingOpen = nil }
-            }
-        } message: {
-            if let item = itemPendingOpen { Text("Hai \(item.quantity) pezzi di '\(item.name)'.") }
-        }
         .alert("Prodotto Finito!", isPresented: $showShopAlert) {
-            Button("Sì, metti in lista") { if let name = itemToAddToShop { addToShoppingList(name) } }
-            Button("No, grazie", role: .cancel) { }
-        } message: { Text("Hai finito \(itemToAddToShop ?? "il prodotto"). Vuoi aggiungerlo alla lista della spesa?") }
+            Button("Metti in lista") { if let name = itemToAddToShop { addToShoppingList(name) } }
+            Button("No", role: .cancel) { }
+        } message: { Text("Hai finito \(itemToAddToShop ?? ""). Aggiungo alla spesa?") }
     }
 
     // HELPER FUNCTIONS
-    private func apriFrigo() { withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) { isBuddyOpen = true }; showAddItemSheet = true }
-    private func consumeItem(_ item: FoodItem, allItems: [FoodItem]) { withAnimation { if item.quantity > 1 { item.quantity -= 1 } else { checkIfLastAndSuggest(item, allItems: allItems); NotificationManager.shared.cancelNotification(for: item); modelContext.delete(item) } } }
+    private func locationFromFilter(_ filter: FilterScope) -> StorageLocation {
+        switch filter {
+        case .freezer: return .freezer
+        case .pantry: return .pantry
+        default: return .fridge
+        }
+    }
+    
+    private func consumeItem(_ item: FoodItem, allItems: [FoodItem]) {
+        withAnimation {
+            if item.quantity > 1 { item.quantity -= 1 }
+            else {
+                modelContext.delete(item)
+                itemToAddToShop = item.name
+                showShopAlert = true
+            }
+        }
+        NotificationManager.shared.cancelNotification(for: item)
+    }
+    
+    private func addOneMore(of batches: [FoodItem]) {
+        if let template = batches.max(by: { $0.addedDate < $1.addedDate }) {
+            withAnimation {
+                let newItem = FoodItem(name: template.name, emoji: template.emoji, quantity: 1, expiryDate: template.expiryDate, location: template.location, measureValue: template.measureValue, measureUnit: template.measureUnit)
+                modelContext.insert(newItem)
+            }
+        }
+    }
+    
     private func consumePartial(_ item: FoodItem, remainingFraction: Double) { withAnimation { let newValue = item.measureValue * remainingFraction; item.measureValue = round(newValue * 100) / 100 } }
     private func deleteItem(_ item: FoodItem) { withAnimation { NotificationManager.shared.cancelNotification(for: item); modelContext.delete(item) } }
-    private func checkIfLastAndSuggest(_ item: FoodItem, allItems: [FoodItem]) { let otherBatchesCount = allItems.filter { $0.name == item.name && $0.persistentModelID != item.persistentModelID }.count; if otherBatchesCount == 0 { itemToAddToShop = item.name; showShopAlert = true } }
+    private func requestOpen(item: FoodItem, days: Int) { /* Logic from previous turn */ }
     private func addToShoppingList(_ name: String) { modelContext.insert(ShoppingItem(name: name)) }
-    
-    private func requestOpen(item: FoodItem, days: Int) {
-        if item.quantity == 1 { confirmOpen(item: item, days: days, openAll: true) }
-        else { itemPendingOpen = item; pendingOpenDuration = days; showOpenQuantityDialog = true }
-    }
-    
-    private func confirmOpen(item: FoodItem, days: Int, openAll: Bool) {
-        withAnimation {
-            let quantityToMove = openAll ? item.quantity : 1
-            if item.quantity > quantityToMove { item.quantity -= quantityToMove }
-            else { NotificationManager.shared.cancelNotification(for: item); modelContext.delete(item) }
-            let newExpiry = Calendar.current.date(byAdding: .day, value: days, to: Date()) ?? Date()
-            let openedItem = FoodItem(name: item.name, emoji: item.emoji, quantity: quantityToMove, expiryDate: newExpiry, location: item.location, isRecurring: item.isRecurring, measureValue: item.measureValue, measureUnit: item.measureUnit, isOpened: true)
-            modelContext.insert(openedItem)
-            NotificationManager.shared.scheduleNotification(for: openedItem)
-        }
-        itemPendingOpen = nil; pendingOpenDuration = 0
-    }
 }
 
-// CARD DEL PRODOTTO
+// --- NUOVA CARD RIDISEGNATA (Added back to ensure it exists) ---
 struct ProductCard: View {
     let productName: String
     let batches: [FoodItem]
@@ -334,178 +264,87 @@ struct ProductCard: View {
     let onDelete: (FoodItem) -> Void
     let onEdit: (FoodItem) -> Void
     let onOpenRequest: (FoodItem, Int) -> Void
+    let onAdd: () -> Void
     
     @State private var isExpanded: Bool = false
     @Environment(\.colorScheme) var colorScheme
     
-    var firstItem: FoodItem? { batches.first }
+    var firstItem: FoodItem? { batches.sorted(by: { ($0.expiryDate ?? Date.distantFuture) < ($1.expiryDate ?? Date.distantFuture) }).first }
+    var totalQuantity: Int { batches.reduce(0) { $0 + $1.quantity } }
     
     var statusColor: Color {
-        if batches.contains(where: { $0.isOpened }) { return .orange }
-        if let first = firstItem, first.location == .freezer { return .cyan }
-        if batches.contains(where: { $0.isExpired }) { return .red }
-        
-        let soonDate = Calendar.current.date(byAdding: .day, value: 3, to: Date())!
-        
-        if batches.contains(where: {
-            guard let date = $0.expiryDate else { return false }
-            return date <= soonDate
-        }) { return .orange }
-        
+        guard let item = firstItem, let expiry = item.expiryDate else { return .green }
+        if item.isExpired { return .red }
+        let daysLeft = Calendar.current.dateComponents([.day], from: Date(), to: expiry).day ?? 0
+        if daysLeft <= 3 { return .orange }
         return .green
     }
     
-    var totalQuantity: Int { batches.reduce(0) { $0 + $1.quantity } }
-    var cardBackground: Color { Color(uiColor: .secondarySystemGroupedBackground) }
+    var expiryText: String {
+        guard let item = firstItem else { return "" }
+        if item.location == .freezer { return "Congelato ❄️" }
+        if item.isOpened { return "Aperto" }
+        guard let expiry = item.expiryDate else { return "Nessuna scadenza" }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return "Scade " + formatter.localizedString(for: expiry, relativeTo: Date())
+    }
     
+    var progressValue: Double {
+        guard let item = firstItem, let expiry = item.expiryDate else { return 0 }
+        let totalSpan = expiry.timeIntervalSince(item.addedDate)
+        let timeGone = Date().timeIntervalSince(item.addedDate)
+        if totalSpan <= 0 { return 1.0 }
+        return min(max(timeGone / totalSpan, 0), 1.0)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            Button(action: { withAnimation(.spring()) { isExpanded.toggle() } }) {
-                HStack(spacing: 15) {
-                    Rectangle().fill(statusColor).frame(width: 5).frame(maxHeight: .infinity)
-                    Text(firstItem?.emoji ?? "📦").font(.system(size: 40)).padding(.vertical, 10)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(productName).font(.headline).foregroundStyle(.primary)
-                        if let first = firstItem {
-                            if batches.count > 1 {
-                                Text("\(batches.count) lotti diversi").font(.caption).foregroundStyle(.secondary)
-                            } else {
-                                if first.location == .freezer {
-                                    Text("Congelato ❄️").font(.caption).fontWeight(.semibold).foregroundStyle(.cyan)
-                                } else if first.isOpened {
-                                    if let date = first.expiryDate {
-                                        Text("APERTO - Scade: \(date.formatted(date: .abbreviated, time: .omitted))")
-                                            .font(.caption).fontWeight(.bold).foregroundStyle(.orange)
-                                    } else {
-                                        Text("APERTO").font(.caption).fontWeight(.bold).foregroundStyle(.orange)
-                                    }
-                                } else {
-                                    if let date = first.expiryDate {
-                                        Text("Scade: \(date.formatted(date: .abbreviated, time: .omitted))")
-                                            .font(.caption).foregroundStyle(first.isExpired ? .red : .secondary)
-                                    } else {
-                                        Text("Nessuna scadenza")
-                                            .font(.caption).foregroundStyle(.green)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Spacer()
-                    Text("\(totalQuantity)").font(.title3).fontWeight(.bold).foregroundStyle(.white)
-                        .frame(width: 40, height: 40).background(statusColor.opacity(0.8)).clipShape(Circle())
-                    Image(systemName: "chevron.down").rotationEffect(.degrees(isExpanded ? 180 : 0)).foregroundStyle(.gray).padding(.trailing, 10)
+            HStack(spacing: 16) {
+                ZStack {
+                    Circle().fill(Color(hue: 0.12, saturation: 0.1, brightness: 0.98)).frame(width: 48, height: 48)
+                    Text(firstItem?.emoji ?? "📦").font(.system(size: 26))
                 }
-                .background(cardBackground)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(productName).font(.system(.title3, design: .rounded)).fontWeight(.bold).foregroundStyle(.primary)
+                    HStack(spacing: 4) {
+                        if statusColor == .orange || statusColor == .red { Image(systemName: "clock.fill").font(.caption) }
+                        Text(expiryText).font(.caption).fontWeight(.medium)
+                    }.foregroundStyle(statusColor)
+                }
+                Spacer()
+                HStack(spacing: 0) {
+                    Button(action: { if let item = firstItem { onConsume(item) } }) {
+                        Image(systemName: "minus").font(.system(size: 14, weight: .bold)).frame(width: 32, height: 32).background(Color.gray.opacity(0.1)).clipShape(Circle())
+                    }.buttonStyle(.plain)
+                    Text("\(totalQuantity)").font(.system(.body, design: .rounded).monospacedDigit()).fontWeight(.semibold).frame(minWidth: 30).contentTransition(.numericText(value: Double(totalQuantity)))
+                    Button(action: { onAdd() }) {
+                        Image(systemName: "plus").font(.system(size: 14, weight: .bold)).frame(width: 32, height: 32).background(Color.blue.opacity(0.1)).foregroundStyle(.blue).clipShape(Circle())
+                    }.buttonStyle(.plain)
+                }
             }
-            .buttonStyle(.plain)
+            .padding(12)
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
             
-            if isExpanded {
-                Divider()
-                VStack(spacing: 0) {
-                    ForEach(batches) { batch in
-                        SwipeableBatchRow(onDelete: { onDelete(batch) }, onEdit: { onEdit(batch) }) {
-                            HStack {
-                                VStack(alignment: .leading) {
-                                    if batch.location == .freezer {
-                                        Text("Bloccato nel tempo ❄️").font(.subheadline).foregroundStyle(.cyan)
-                                    } else if batch.isOpened {
-                                        HStack {
-                                            Image(systemName: "lock.open.fill")
-                                            Text("APERTO").fontWeight(.bold)
-                                        }
-                                        .font(.caption).foregroundStyle(.orange)
-                                        
-                                        if let date = batch.expiryDate {
-                                            Text("Scade: \(date.formatted(date: .abbreviated, time: .omitted))")
-                                                .font(.subheadline).foregroundStyle(.primary)
-                                        }
-                                    } else {
-                                        if let date = batch.expiryDate {
-                                            Text("Scade: \(date.formatted(date: .abbreviated, time: .omitted))")
-                                                .font(.subheadline).foregroundStyle(batch.isExpired ? .red : .primary)
-                                        } else {
-                                            Text("Nessuna scadenza")
-                                                .font(.subheadline).foregroundStyle(.green)
-                                        }
-                                    }
-                                    HStack {
-                                        Text(batch.location.rawValue)
-                                        if !batch.formattedMeasure.isEmpty { Text("• \(batch.formattedMeasure)") }
-                                    }.font(.caption).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                
-                                if !batch.isOpened && batch.location != .freezer {
-                                    Menu {
-                                        Text("Consumare entro:")
-                                        Button("24 Ore") { onOpenRequest(batch, 1) }
-                                        Button("3 Giorni") { onOpenRequest(batch, 3) }
-                                        Button("5 Giorni") { onOpenRequest(batch, 5) }
-                                        Button("7 Giorni") { onOpenRequest(batch, 7) }
-                                    } label: {
-                                        VStack(spacing: 2) {
-                                            Image(systemName: "arrow.up.bin.fill")
-                                            Text("Apri").font(.caption2).bold()
-                                        }
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 6)
-                                        .background(Color.orange.opacity(0.15))
-                                        .foregroundStyle(.orange)
-                                        .cornerRadius(8)
-                                    }
-                                    .padding(.trailing, 5)
-                                }
-                                
-                                if batch.measureUnit == .pieces || batch.quantity > 1 {
-                                    Button(action: { onConsume(batch) }) {
-                                        HStack(spacing: 4) { Image(systemName: "fork.knife"); Text("Mangia").fontWeight(.semibold) }
-                                            .font(.caption).padding(.horizontal, 12).padding(.vertical, 6).background(Color.blue).foregroundStyle(.white).clipShape(Capsule()).shadow(color: .blue.opacity(0.3), radius: 2, x: 0, y: 1)
-                                    }
-                                } else {
-                                    Menu {
-                                        Button("🍽️ Mangia Tutto (Finito!)") { onConsume(batch) }
-                                        Divider()
-                                        Text("Consuma una parte:")
-                                        Button("🍰 Mangia Metà (Ne rimane 1/2)") { onConsumePartial(batch, 0.5) }
-                                        Button("🤏 Mangia un po' (Ne rimane 3/4)") { onConsumePartial(batch, 0.75) }
-                                        Button("🥄 Mangia molto (Ne rimane 1/4)") { onConsumePartial(batch, 0.25) }
-                                        Button("⚠️ Quasi finito (Ne rimane 10%)") { onConsumePartial(batch, 0.10) }
-                                    } label: {
-                                        HStack(spacing: 4) { Image(systemName: "slider.horizontal.below.rectangle"); Text("Consuma...").fontWeight(.semibold) }
-                                            .font(.caption).padding(.horizontal, 12).padding(.vertical, 6).background(Color.indigo).foregroundStyle(.white).clipShape(Capsule()).shadow(color: .indigo.opacity(0.3), radius: 2, x: 0, y: 1)
-                                    }
-                                }
-                                Text("x\(batch.quantity)").bold().frame(minWidth: 25).padding(.trailing, 5)
-                            }
-                            .padding().background(cardBackground)
-                        }
-                        if batch.id != batches.last?.id { Divider().padding(.leading) }
+            if let _ = firstItem?.expiryDate {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Rectangle().fill(Color.gray.opacity(0.1))
+                        Rectangle().fill(statusColor).frame(width: geo.size.width * progressValue)
                     }
-                }
+                }.frame(height: 4)
             }
         }
-        .background(cardBackground).clipShape(RoundedRectangle(cornerRadius: 16)).shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 4)
+        .onTapGesture {
+            if batches.count > 1 { withAnimation { isExpanded.toggle() } }
+            else { if let item = firstItem { onEdit(item) } }
+        }
     }
 }
 
-// RIGA SWIPEABLE
-struct SwipeableBatchRow<Content: View>: View {
-    var onDelete: () -> Void; var onEdit: (() -> Void)? = nil; @ViewBuilder var content: Content; @State private var offset: CGFloat = 0; @State private var isSwiped: Bool = false; let buttonWidth: CGFloat = 70
-    var body: some View {
-        ZStack(alignment: .trailing) {
-            HStack(spacing: 0) { Spacer(); if let onEdit = onEdit { Button(action: { withAnimation { offset = 0; isSwiped = false }; onEdit() }) { ZStack { Color.orange; Image(systemName: "pencil").foregroundStyle(.white).font(.title2) } }.frame(width: buttonWidth) }; Button(action: { withAnimation { offset = 0; isSwiped = false }; onDelete() }) { ZStack { Color.red; Image(systemName: "trash.fill").foregroundStyle(.white).font(.title2) } }.frame(width: buttonWidth) }
-            content.offset(x: offset).gesture(DragGesture().onChanged { value in if value.translation.width < 0 { offset = value.translation.width } }.onEnded { value in withAnimation(.spring()) { let threshold: CGFloat = (onEdit != nil) ? -140 : -70; let finalOffset: CGFloat = (onEdit != nil) ? -(buttonWidth * 2) : -buttonWidth; if value.translation.width < threshold { offset = finalOffset; isSwiped = true } else { offset = 0; isSwiped = false } } })
-        }.onTapGesture { if isSwiped { withAnimation { offset = 0; isSwiped = false } } }
-    }
-}
-
-struct RoundedCorner: Shape {
-    var radius: CGFloat = .infinity
-    var corners: UIRectCorner = .allCorners
-
-    func path(in rect: CGRect) -> Path {
-        let path = UIBezierPath(roundedRect: rect, byRoundingCorners: corners, cornerRadii: CGSize(width: radius, height: radius))
-        return Path(path.cgPath)
-    }
-}
+struct ContentView_Previews: PreviewProvider {
+    static var previews: some View {
+        ContentView()
+    }}

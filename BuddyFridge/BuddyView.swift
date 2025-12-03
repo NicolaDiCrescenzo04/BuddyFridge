@@ -74,6 +74,7 @@ struct BuddyView: View {
                     }
                     .transition(.opacity.combined(with: .scale))
                     .padding(.horizontal, 20)
+                    .padding(.bottom, 30)
                     // Nascondi se la porta è aperta (perché ruota sopra)
                     .opacity(isDoorOpen ? 0 : 1)
             }
