@@ -104,17 +104,18 @@ struct FridgeView: View {
             // Progress: 0.0 (Riposo) -> 1.0 (Espanso)
             let progress = (clampedHeight - restingHeight) / ((screenHeight - expandedTopMargin) - restingHeight)
             
-            // --- CALCOLO POSIZIONE BUDDY (AGGIORNATO) ---
+            // --- CALCOLO POSIZIONE BUDDY ---
             // StartY: A riposo sta più in basso (100) per lasciare spazio al fumetto
             let startY: CGFloat = 100
             
-            // EndOffset: Quando si apre, sale di MOLTO (-240) per seguire la lista
+            // EndOffset: Quando si apre, sale di MOLTO (-120) per seguire la lista
             let endOffset: CGFloat = -120
             
             let buddyOffsetY = startY + (endOffset * progress)
             // Scale: Non lo rimpiccioliamo troppo (0.90 minimo) sennò sembra lontano
             let buddyScale = 1.0 - (progress * 0.10)
             
+            // Buddy guarda in basso solo se la lista inizia ad aprirsi (>10%)
             let buddyMood: BuddyView.BuddyMood? = progress > 0.1 ? .observing : nil
 
             ZStack(alignment: .top) {
@@ -194,60 +195,61 @@ struct FridgeView: View {
                             }
                         }
                         
+                        
                         // BARRA DI RICERCA "LIQUID GLASS"
-                        VStack(spacing: 0) {
-                            Divider().opacity(0.3) // Divisore sottile
-                            
-                            HStack(spacing: 12) {
-                                // Campo di ricerca
-                                HStack {
-                                    Image(systemName: "magnifyingglass")
-                                        .foregroundStyle(.secondary)
-                                    
-                                    TextField("Cerca...", text: $searchText)
-                                        .focused($isSearchFocused)
-                                        .submitLabel(.done)
-                                    
-                                    if !searchText.isEmpty {
-                                        Button(action: { searchText = ""; isSearchFocused = false }) {
-                                            Image(systemName: "xmark.circle.fill")
-                                                .foregroundStyle(.secondary)
-                                        }
-                                    }
-                                }
-                                .padding(10)
-                                // Sfondo del campo testo: Vetro più chiaro
-                                .background(.ultraThinMaterial)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                                
-                                // Bottone Impostazioni
-                                Button(action: { showSettings = true }) {
-                                    Image(systemName: "gearshape.fill")
-                                        .font(.title2)
-                                        .foregroundStyle(.gray)
-                                        .frame(width: 44, height: 44)
-                                        // Sfondo del bottone: Vetro
-                                        .background(.ultraThinMaterial)
-                                        .clipShape(Circle())
-                                }
-                            }
-                            .padding(.horizontal)
-                            .padding(.top, 10)
-                            // Padding bottom per sollevare dal bordo safe area
-                            .padding(.bottom, 10)
-                        }
-                        // SFONDO INTERO DELLA BARRA: Vetro Smerigliato (Liquid Glass)
-                        .background(.ultraThinMaterial)
-                        // LOGICA COMPARSA: Opacità basata sul progresso
-                        .opacity(progress > 0.1 ? Double((progress - 0.1) * 1.5) : 0)
-                        .allowsHitTesting(progress > 0.4)
-                    }
-                    .background(Color(uiColor: .systemBackground))
+                                                VStack(spacing: 0) {
+                                                    Divider() // Linea di separazione sottile
+                                                    
+                                                    HStack(spacing: 12) {
+                                                        // Campo di ricerca
+                                                        HStack {
+                                                            Image(systemName: "magnifyingglass")
+                                                                .foregroundStyle(.secondary)
+                                                            
+                                                            TextField("Cerca...", text: $searchText)
+                                                                .focused($isSearchFocused)
+                                                                .submitLabel(.done)
+                                                            
+                                                            if !searchText.isEmpty {
+                                                                Button(action: { searchText = ""; isSearchFocused = false }) {
+                                                                    Image(systemName: "xmark.circle.fill")
+                                                                        .foregroundStyle(.secondary)
+                                                                }
+                                                            }
+                                                        }
+                                                        .padding(10)
+                                                        // Sfondo del campo testo: Grigio chiaro per contrasto su bianco
+                                                        .background(Color(uiColor: .secondarySystemBackground))
+                                                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                                                        
+                                                        // Bottone Impostazioni
+                                                        Button(action: { showSettings = true }) {
+                                                            Image(systemName: "gearshape.fill")
+                                                                .font(.title2)
+                                                                .foregroundStyle(.gray)
+                                                                .frame(width: 44, height: 44)
+                                                                // Sfondo del bottone: Grigio chiaro per contrasto su bianco
+                                                                .background(Color(uiColor: .secondarySystemBackground))
+                                                                .clipShape(Circle())
+                                                        }
+                                                    }
+                                                    .padding(.horizontal)
+                                                    .padding(.top, 10)
+                                                    // Padding bottom per sollevare dal bordo safe area
+                                                    .padding(.bottom, 10)
+                                                }
+                                                // SFONDO INTERO DELLA BARRA: Ora è solido come il resto del foglio
+                                                .background(Color(uiColor: .systemBackground))
+                                                // LOGICA COMPARSA: Opacità basata sul progresso
+                                                .opacity(progress > 0.1 ? Double((progress - 0.1) * 1.5) : 0)
+                                                .allowsHitTesting(progress > 0.4)
+                                            }
+                                            .background(Color(uiColor: .systemBackground))
                     .clipShape(RoundedCorner(radius: 30, corners: [.topLeft, .topRight]))
                     .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: -5)
                     .frame(height: clampedHeight)
                     .frame(maxHeight: .infinity, alignment: .bottom)
-                    // GESTURE
+                    // GESTURE MODIFICATA PER GESTIRE L'ESPANSIONE E LA TOOLBAR
                     .gesture(
                         DragGesture()
                             .onChanged { value in
@@ -258,7 +260,7 @@ struct FridgeView: View {
                                 let threshold: CGFloat = 100
                                 let predictedEnd = value.translation.height + (value.velocity.height / 5)
                                 
-                                withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                                withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
                                     if isExpanded {
                                         if predictedEnd > threshold { isExpanded = false; isSearchFocused = false }
                                     } else {
@@ -271,6 +273,11 @@ struct FridgeView: View {
                 }
             }
         }
+        // --- 1. NASCONDI LA TAB BAR QUANDO ESPANSO ---
+        .toolbar(isExpanded ? .hidden : .visible, for: .tabBar)
+        // --- 2. TRANSIZIONE FLUIDA ---
+        .animation(.easeInOut(duration: 0.3), value: isExpanded)
+        
         .sheet(isPresented: $showAddItemSheet, onDismiss: { withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) { isBuddyOpen = false } }) {
             AddItemView().presentationDetents([.fraction(0.65)]).presentationDragIndicator(.visible)
         }
